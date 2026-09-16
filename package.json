@@ -15,11 +15,13 @@
     "engine": "pnpm --filter @quickshelf/sync-engine dev",
     "api": "pnpm --filter @quickshelf/api dev",
     "dashboard": "pnpm --filter @quickshelf/dashboard dev",
-    "sim": "pnpm --filter esl-sim start"
+    "sim": "pnpm --filter esl-sim start",
+    "test:chaos": "tsx tools/chaos-bench.ts"
   },
   "devDependencies": {
+    "prettier": "^3.5.2",
+    "tsx": "^4.23.13",
     "turbo": "^2.4.4",
-    "typescript": "^5.7.3",
-    "prettier": "^3.5.2"
+    "typescript": "^5.7.3"
   }
 }

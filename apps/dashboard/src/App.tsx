@@ -11,6 +11,10 @@ import {
   Store,
   Radio,
   Clock,
+  Flame,
+  CheckCircle2,
+  XCircle,
+  Cpu,
 } from 'lucide-react';
 
 interface FleetStatus {
@@ -20,6 +24,14 @@ interface FleetStatus {
   divergedTags: number;
   convergedTags: number;
   convergencePct: number;
+}
+
+interface ChaosMetrics {
+  totalCommands: number;
+  settledCommands: number;
+  ackedTargets: number;
+  supersededTargets: number;
+  failedTargets: number;
 }
 
 interface TagItem {
@@ -51,6 +63,7 @@ const API_BASE = 'http://localhost:3000';
 
 export default function App() {
   const [fleet, setFleet] = useState<FleetStatus | null>(null);
+  const [chaos, setChaos] = useState<ChaosMetrics | null>(null);
   const [tags, setTags] = useState<TagItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
@@ -64,9 +77,10 @@ export default function App() {
 
   const fetchData = async () => {
     try {
-      const [statusRes, tagsRes] = await Promise.all([
+      const [statusRes, tagsRes, chaosRes] = await Promise.all([
         fetch(`${API_BASE}/api/fleet/status`),
         fetch(`${API_BASE}/api/tags`),
+        fetch(`${API_BASE}/api/chaos/metrics`),
       ]);
 
       if (statusRes.ok && tagsRes.ok) {
@@ -77,6 +91,11 @@ export default function App() {
         setApiConnected(true);
       } else {
         setApiConnected(false);
+      }
+
+      if (chaosRes.ok) {
+        const chaosData = await chaosRes.json();
+        setChaos(chaosData);
       }
     } catch {
       setApiConnected(false);
@@ -157,6 +176,63 @@ export default function App() {
     setTimeout(() => setActionMessage(null), 4000);
   };
 
+  // Chaos Actions
+  const triggerHashSkipTest = async () => {
+    setActionMessage('Running Hard Problem 3: Battery-Aware Hash Skip...');
+    try {
+      const res = await fetch(`${API_BASE}/api/chaos/hash-skip-test`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setActionMessage(`⚡ ${data.message}`);
+        fetchData();
+      } else {
+        setActionMessage(`❌ ${data.error}`);
+      }
+    } catch {
+      setActionMessage('Failed to trigger hash-skip test');
+    }
+    setTimeout(() => setActionMessage(null), 5000);
+  };
+
+  const triggerBurstCollapseTest = async () => {
+    setActionMessage('Running Hard Problem 2: Rapid Burst Collapse Test...');
+    try {
+      const res = await fetch(`${API_BASE}/api/chaos/burst-collapse-test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skuCode: 'CAD-SILK-150' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActionMessage(`🌪️ Dispatched 3 rapid updates! Intermediate targets collapsed into SUPERSEDED.`);
+        fetchData();
+      }
+    } catch {
+      setActionMessage('Failed to trigger burst collapse test');
+    }
+    setTimeout(() => setActionMessage(null), 5000);
+  };
+
+  const toggleLowBattery = async (low: boolean) => {
+    const faultType = low ? 'LOW_BATTERY' : 'RESTORE';
+    setActionMessage(`${low ? '⚠️ Injecting low battery (12%)' : '💚 Restoring battery (95%)'} on tag-001...`);
+    try {
+      const res = await fetch(`${API_BASE}/api/chaos/inject-fault`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId: 'tag-001', faultType }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActionMessage(data.message);
+        fetchData();
+      }
+    } catch {
+      setActionMessage('Failed to inject fault');
+    }
+    setTimeout(() => setActionMessage(null), 4000);
+  };
+
   const formatRupees = (minorUnits: number) => {
     return (minorUnits / 100).toFixed(2);
   };
@@ -223,7 +299,7 @@ export default function App() {
       )}
 
       {/* KPI Metrics Grid */}
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '28px' }}>
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '28px' }}>
         {/* Core Metric: Diverged Tags */}
         <div style={{
           background: fleet && fleet.divergedTags > 0 ? '#451a03' : '#0f172a',
@@ -268,188 +344,268 @@ export default function App() {
         {/* Total Active Tags */}
         <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '13px', fontWeight: 600 }}>
-            <span>TOTAL ESL TAGS</span>
-            <TagIcon size={18} color="#60a5fa" />
+            <span>COLLAPSED / SUPERSEDED</span>
+            <Cpu size={18} color="#a855f7" />
           </div>
-          <div style={{ fontSize: '36px', fontWeight: 800, marginTop: '10px' }}>
-            {fleet ? fleet.totalTags : '-'}
+          <div style={{ fontSize: '36px', fontWeight: 800, marginTop: '10px', color: '#c084fc' }}>
+            {chaos ? chaos.supersededTargets : '0'}
           </div>
           <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
-            Paired virtual tags across Koramangala
+            Intermediate targets safely collapsed
           </p>
         </div>
 
-        {/* Active Store & Gateways */}
+        {/* Settled Commands */}
         <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '13px', fontWeight: 600 }}>
-            <span>GATEWAYS & HUBS</span>
-            <Radio size={18} color="#c084fc" />
+            <span>SETTLED COMMANDS</span>
+            <CheckCircle2 size={18} color="#38bdf8" />
           </div>
           <div style={{ fontSize: '36px', fontWeight: 800, marginTop: '10px' }}>
-            {fleet ? fleet.gatewayCount : '-'}
+            {chaos ? chaos.settledCommands : '-'}
           </div>
           <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
-            WebSocket: <code style={{ color: '#c084fc' }}>gw-blr-01</code>
+            Idempotent batch settlements
           </p>
         </div>
       </section>
 
-      {/* Commercial POS Simulation Console */}
-      <section style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px', marginBottom: '32px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Store size={18} color="#3b82f6" />
-              Mock POS & Commercial Trigger Panel
+      {/* Side-by-Side: POS Console & Chaos Console */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+        {/* Commercial POS Simulation Console */}
+        <section style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Store size={18} color="#3b82f6" />
+                POS & Commercial Webhook Panel
+              </h2>
+              <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: '12px' }}>
+                Emits commercial price webhooks to trigger reconciliation
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                onClick={() => triggerFlashSale(20)}
+                style={{
+                  background: '#2563eb',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <Zap size={14} />
+                20% Sale
+              </button>
+
+              <button
+                onClick={resetPrices}
+                style={{
+                  background: '#1e293b',
+                  color: '#e2e8f0',
+                  border: '1px solid #334155',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <RotateCcw size={14} />
+                Reset
+              </button>
+            </div>
+          </div>
+
+          {/* Individual SKU Price Form */}
+          <form onSubmit={submitManualPrice} style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap', paddingTop: '10px', borderTop: '1px solid #1e293b' }}>
+            <div style={{ flex: 1, minWidth: '130px' }}>
+              <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>PRODUCT</label>
+              <select
+                value={selectedSku}
+                onChange={(e) => setSelectedSku(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: '#1e293b',
+                  color: '#f8fafc',
+                  border: '1px solid #334155',
+                  borderRadius: '6px',
+                  padding: '7px 10px',
+                  fontSize: '12px',
+                }}
+              >
+                {tags.map((t) => t.sku && (
+                  <option key={t.sku.code} value={t.sku.code}>
+                    {t.sku.name} ({t.sku.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ width: '90px' }}>
+              <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>PRICE (₹)</label>
+              <input
+                type="text"
+                value={newPriceRupees}
+                onChange={(e) => setNewPriceRupees(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: '#1e293b',
+                  color: '#f8fafc',
+                  border: '1px solid #334155',
+                  borderRadius: '6px',
+                  padding: '7px 10px',
+                  fontSize: '12px',
+                }}
+              />
+            </div>
+
+            <div style={{ width: '110px' }}>
+              <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>PROMO</label>
+              <input
+                type="text"
+                value={promoText}
+                onChange={(e) => setPromoText(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: '#1e293b',
+                  color: '#f8fafc',
+                  border: '1px solid #334155',
+                  borderRadius: '6px',
+                  padding: '7px 10px',
+                  fontSize: '12px',
+                }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              style={{
+                background: '#0284c7',
+                color: '#fff',
+                border: 'none',
+                padding: '7px 14px',
+                borderRadius: '6px',
+                fontWeight: 600,
+                fontSize: '12px',
+                cursor: 'pointer',
+              }}
+            >
+              Update Price
+            </button>
+          </form>
+        </section>
+
+        {/* Chaos & Fault Injection Console */}
+        <section style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '12px', padding: '20px' }}>
+          <div style={{ marginBottom: '14px' }}>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
+              <Flame size={18} color="#f59e0b" />
+              Hardware Fault & Chaos Console (The 7 Hard Problems)
             </h2>
             <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: '12px' }}>
-              Emits commercial price webhook events to test reconciliation and collapse
+              Test battery skips, version collapse, and hardware rejection live
             </p>
           </div>
 
-          {/* Quick Buttons */}
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', paddingTop: '10px', borderTop: '1px solid #1e293b' }}>
+            {/* Hard Problem 3 */}
             <button
-              onClick={() => triggerFlashSale(20)}
+              onClick={triggerHashSkipTest}
               style={{
-                background: '#2563eb',
-                color: '#fff',
-                border: 'none',
-                padding: '8px 14px',
-                borderRadius: '6px',
-                fontWeight: 600,
-                fontSize: '13px',
+                background: '#1e293b',
+                color: '#38bdf8',
+                border: '1px solid #0284c7',
+                padding: '10px',
+                borderRadius: '8px',
+                textAlign: 'left',
                 cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
               }}
             >
-              <Zap size={15} />
-              ⚡ 20% Flash Sale
+              <div style={{ fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <ShieldCheck size={14} /> Battery-Aware Hash Skip
+              </div>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                Skips radio dispatch; advances DB version directly.
+              </div>
             </button>
 
+            {/* Hard Problem 2 */}
             <button
-              onClick={() => triggerFlashSale(35)}
+              onClick={triggerBurstCollapseTest}
               style={{
-                background: '#7c3aed',
-                color: '#fff',
-                border: 'none',
-                padding: '8px 14px',
-                borderRadius: '6px',
-                fontWeight: 600,
-                fontSize: '13px',
+                background: '#1e293b',
+                color: '#c084fc',
+                border: '1px solid #9333ea',
+                padding: '10px',
+                borderRadius: '8px',
+                textAlign: 'left',
                 cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
               }}
             >
-              <Zap size={15} />
-              ⚡ 35% Super Sale
+              <div style={{ fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <Cpu size={14} /> Rapid Burst (Collapse Test)
+              </div>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                3 rapid updates; marks intermediate targets SUPERSEDED.
+              </div>
             </button>
 
+            {/* Hard Problem 7 (Fault) */}
             <button
-              onClick={resetPrices}
+              onClick={() => toggleLowBattery(true)}
               style={{
                 background: '#1e293b',
-                color: '#e2e8f0',
-                border: '1px solid #334155',
-                padding: '8px 14px',
-                borderRadius: '6px',
-                fontWeight: 600,
-                fontSize: '13px',
+                color: '#f87171',
+                border: '1px solid #dc2626',
+                padding: '10px',
+                borderRadius: '8px',
+                textAlign: 'left',
                 cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
               }}
             >
-              <RotateCcw size={15} />
-              Reset to MRP
+              <div style={{ fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <Battery size={14} /> Inject Low Battery (&lt;15%)
+              </div>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                Sets tag-001 to 12%; triggers LOW_BATTERY NACK.
+              </div>
+            </button>
+
+            {/* Restore Battery */}
+            <button
+              onClick={() => toggleLowBattery(false)}
+              style={{
+                background: '#1e293b',
+                color: '#34d399',
+                border: '1px solid #059669',
+                padding: '10px',
+                borderRadius: '8px',
+                textAlign: 'left',
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <RefreshCw size={14} /> Restore Battery (95%)
+              </div>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                Restores tag-001 battery to healthy 95%.
+              </div>
             </button>
           </div>
-        </div>
-
-        {/* Individual SKU Price Form */}
-        <form onSubmit={submitManualPrice} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap', paddingTop: '12px', borderTop: '1px solid #1e293b' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>SELECT PRODUCT</label>
-            <select
-              value={selectedSku}
-              onChange={(e) => setSelectedSku(e.target.value)}
-              style={{
-                background: '#1e293b',
-                color: '#f8fafc',
-                border: '1px solid #334155',
-                borderRadius: '6px',
-                padding: '7px 12px',
-                fontSize: '13px',
-              }}
-            >
-              {tags.map((t) => t.sku && (
-                <option key={t.sku.code} value={t.sku.code}>
-                  {t.sku.name} ({t.sku.code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>NEW PRICE (₹)</label>
-            <input
-              type="text"
-              value={newPriceRupees}
-              onChange={(e) => setNewPriceRupees(e.target.value)}
-              placeholder="e.g. 185.00"
-              style={{
-                background: '#1e293b',
-                color: '#f8fafc',
-                border: '1px solid #334155',
-                borderRadius: '6px',
-                padding: '7px 12px',
-                fontSize: '13px',
-                width: '120px',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>PROMO BADGE</label>
-            <input
-              type="text"
-              value={promoText}
-              onChange={(e) => setPromoText(e.target.value)}
-              placeholder="e.g. Save ₹20"
-              style={{
-                background: '#1e293b',
-                color: '#f8fafc',
-                border: '1px solid #334155',
-                borderRadius: '6px',
-                padding: '7px 12px',
-                fontSize: '13px',
-                width: '160px',
-              }}
-            />
-          </div>
-
-          <button
-            type="submit"
-            style={{
-              background: '#0284c7',
-              color: '#fff',
-              border: 'none',
-              padding: '8px 16px',
-              borderRadius: '6px',
-              fontWeight: 600,
-              fontSize: '13px',
-              cursor: 'pointer',
-            }}
-          >
-            Dispatch POS Webhook
-          </button>
-        </form>
-      </section>
+        </section>
+      </div>
 
       {/* The Virtual ESL Shelf (E-Ink Tag Visualizer) */}
       <section>
@@ -587,7 +743,9 @@ export default function App() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                       <Battery size={13} color={tag.batteryPct > 20 ? '#10b981' : '#ef4444'} />
-                      <span>{tag.batteryPct}%</span>
+                      <span style={{ color: tag.batteryPct <= 15 ? '#ef4444' : 'inherit', fontWeight: tag.batteryPct <= 15 ? 700 : 'normal' }}>
+                        {tag.batteryPct}%
+                      </span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                       <Wifi size={13} />
