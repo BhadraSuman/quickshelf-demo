@@ -1,0 +1,139 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+model Store {
+  id       String    @id @default(cuid())
+  name     String
+  city     String
+  gateways Gateway[]
+  skus     Sku[]
+  tags     Tag[]
+}
+
+model Gateway {
+  id            String        @id @default(cuid())
+  storeId       String
+  hardwareId    String        @unique
+  firmware      String
+  status        GatewayStatus @default(OFFLINE)
+  lastSeenAt    DateTime?
+  maxTagsPerSec Int           @default(50)
+  store         Store         @relation(fields: [storeId], references: [id])
+  tags          Tag[]
+  commands      Command[]
+}
+
+model Sku {
+  id         String       @id @default(cuid())
+  storeId    String
+  code       String
+  name       String
+  priceMinor Int          // paise / cents. never a float.
+  mrpMinor   Int
+  promoBadge String?
+  version    Int          @default(1) // bumped on every commercial change
+  store      Store        @relation(fields: [storeId], references: [id])
+  tags       Tag[]
+  events     PriceEvent[]
+
+  @@unique([storeId, code])
+}
+
+model Tag {
+  id         String   @id @default(cuid())
+  storeId    String
+  gatewayId  String
+  hardwareId String   @unique
+  size       TagSize
+  skuId      String?
+
+  desiredVersion Int     @default(0)
+  desiredHash    String?
+  desiredPayload Json?
+
+  reportedVersion Int       @default(0)
+  reportedHash    String?
+  reportedAt      DateTime?
+
+  batteryPct Int?
+  rssi       Int?
+
+  store   Store           @relation(fields: [storeId], references: [id])
+  gateway Gateway         @relation(fields: [gatewayId], references: [id])
+  sku     Sku?            @relation(fields: [skuId], references: [id])
+  targets CommandTarget[]
+}
+
+model Command {
+  id           String          @id @default(cuid())
+  gatewayId    String
+  status       CommandStatus   @default(PENDING)
+  attempt      Int             @default(0)
+  createdAt    DateTime        @default(now())
+  dispatchedAt DateTime?
+  settledAt    DateTime?
+  gateway      Gateway         @relation(fields: [gatewayId], references: [id])
+  targets      CommandTarget[]
+}
+
+model CommandTarget {
+  id        String       @id @default(cuid())
+  commandId String
+  tagId     String
+  version   Int
+  hash      String
+  payload   Json
+  status    TargetStatus @default(PENDING)
+  ackedAt   DateTime?
+  failure   String?
+  command   Command      @relation(fields: [commandId], references: [id])
+  tag       Tag          @relation(fields: [tagId], references: [id])
+
+  @@unique([commandId, tagId])
+}
+
+model PriceEvent {
+  id            String   @id @default(cuid())
+  skuId         String
+  oldPriceMinor Int
+  newPriceMinor Int
+  source        String   // "pos" | "manual" | "promo"
+  createdAt     DateTime @default(now())
+  sku           Sku      @relation(fields: [skuId], references: [id])
+}
+
+enum GatewayStatus {
+  ONLINE
+  OFFLINE
+  DEGRADED
+}
+
+enum CommandStatus {
+  PENDING
+  DISPATCHED
+  SETTLED
+  FAILED
+}
+
+enum TargetStatus {
+  PENDING
+  ACKED
+  FAILED
+  SUPERSEDED
+}
+
+enum TagSize {
+  T154
+  T213
+  T290
+  T420
+  T750
+  T1020
+}

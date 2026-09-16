@@ -1,0 +1,27 @@
+{
+  "name": "@quickshelf/esl-protocol",
+  "version": "0.1.0",
+  "description": "Wire protocol types and validation schemas for Quickshelf and esl-sim",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "node --test dist/**/*.test.js || tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "typescript": "^5.7.3",
+    "tsx": "^4.19.3"
+  }
+}

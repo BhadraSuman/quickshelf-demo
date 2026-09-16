@@ -1,0 +1,21 @@
+{
+  "name": "quickshelf-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.29.3",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "db:generate": "pnpm --filter @quickshelf/db generate",
+    "db:migrate": "pnpm --filter @quickshelf/db migrate",
+    "db:seed": "pnpm --filter @quickshelf/db seed",
+    "sim": "pnpm --filter esl-sim start"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.4",
+    "typescript": "^5.7.3",
+    "prettier": "^3.5.2"
+  }
+}

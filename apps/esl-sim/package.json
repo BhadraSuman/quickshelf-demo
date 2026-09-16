@@ -1,0 +1,28 @@
+{
+  "name": "esl-sim",
+  "version": "0.1.0",
+  "description": "Virtual Electronic Shelf Label (ESL) fleet simulator and gateway emulator",
+  "bin": {
+    "esl-sim": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@quickshelf/esl-protocol": "workspace:*",
+    "commander": "^13.1.0",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "@types/ws": "^8.5.14",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}
