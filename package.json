@@ -20,7 +20,8 @@
     "services": "concurrently --kill-others -n \"API,HUB,ENGINE\" -c \"blue.bold,magenta.bold,cyan.bold\" \"pnpm api\" \"pnpm hub\" \"pnpm engine\"",
     "start": "concurrently --kill-others -n \"API,HUB,ENGINE,SIM,UI\" -c \"blue.bold,magenta.bold,cyan.bold,yellow.bold,green.bold\" \"pnpm api\" \"pnpm hub\" \"pnpm engine\" \"pnpm sim\" \"pnpm dashboard\"",
     "docker:up": "docker compose -f docker-compose.full.yml up --build",
-    "docker:down": "docker compose -f docker-compose.full.yml down"
+    "docker:down": "docker compose -f docker-compose.full.yml down",
+    "publish:public": "powershell -ExecutionPolicy Bypass -File tools/publish-public.ps1"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",
