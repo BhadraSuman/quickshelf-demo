@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: quickshelf-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: quickshelf
+      POSTGRES_PASSWORD: quickshelf_dev
+      POSTGRES_DB: quickshelf
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quickshelf -d quickshelf"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: quickshelf-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  gateway-hub:
+    build:
+      context: .
+      dockerfile: apps/gateway-hub/Dockerfile
+    container_name: quickshelf-hub
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      GATEWAY_HUB_PORT: 8080
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: quickshelf-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://quickshelf:quickshelf_dev@postgres:5432/quickshelf?schema=public
+      API_PORT: 3000
+
+  sync-engine:
+    build:
+      context: .
+      dockerfile: apps/sync-engine/Dockerfile
+    container_name: quickshelf-engine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://quickshelf:quickshelf_dev@postgres:5432/quickshelf?schema=public
+      REDIS_URL: redis://redis:6379
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    container_name: quickshelf-dashboard
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "5173:5173"
+
+  esl-sim:
+    build:
+      context: .
+      dockerfile: apps/esl-sim/Dockerfile
+    container_name: quickshelf-simulator
+    restart: unless-stopped
+    depends_on:
+      - gateway-hub
+
+volumes:
+  pgdata:
+  redisdata:
