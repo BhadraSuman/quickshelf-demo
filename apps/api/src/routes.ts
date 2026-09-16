@@ -47,30 +47,102 @@ export async function registerRoutes(app: FastifyInstance) {
     };
   });
 
-  // Get currently diverged tags
-  app.get('/api/tags/diverged', async () => {
-    const diverged = await db.tag.findMany({
-      where: {
-        desiredVersion: {
-          gt: db.tag.fields.reportedVersion,
-        },
-      },
+  // All Tags with current e-ink state
+  app.get('/api/tags', async () => {
+    const tags = await db.tag.findMany({
       include: {
         gateway: true,
         sku: true,
       },
+      orderBy: { hardwareId: 'asc' },
     });
 
-    return {
-      count: diverged.length,
-      tags: diverged.map((t) => ({
-        tagId: t.hardwareId,
-        gatewayId: t.gateway.hardwareId,
-        skuCode: t.sku?.code,
+    return tags.map((t) => {
+      const isDiverged = t.desiredVersion > t.reportedVersion;
+      return {
+        id: t.id,
+        hardwareId: t.hardwareId,
+        size: t.size,
+        gatewayHardwareId: t.gateway.hardwareId,
+        gatewayStatus: t.gateway.status,
+        sku: t.sku ? {
+          id: t.sku.id,
+          code: t.sku.code,
+          name: t.sku.name,
+          priceMinor: t.sku.priceMinor,
+          mrpMinor: t.sku.mrpMinor,
+          promoBadge: t.sku.promoBadge,
+          version: t.sku.version,
+        } : null,
         desiredVersion: t.desiredVersion,
+        desiredPayload: t.desiredPayload,
         reportedVersion: t.reportedVersion,
-        divergenceDelta: t.desiredVersion - t.reportedVersion,
-      })),
-    };
+        reportedAt: t.reportedAt,
+        batteryPct: t.batteryPct ?? 95,
+        rssi: t.rssi ?? -65,
+        isDiverged,
+        divergenceDelta: Math.max(0, t.desiredVersion - t.reportedVersion),
+      };
+    });
+  });
+
+  // List SKUs
+  app.get('/api/skus', async () => {
+    return await db.sku.findMany({
+      orderBy: { code: 'asc' },
+    });
+  });
+
+  // Quick Flash Sale Trigger (Bulk discount)
+  app.post('/api/pos/flash-sale', async (request, reply) => {
+    const body = (request.body as any) || {};
+    const discountPct = Number(body.discountPct ?? 15);
+    const promoBadge = body.promoBadge ?? `Flash Sale ${discountPct}% OFF`;
+
+    const skus = await db.sku.findMany();
+    const updated = [];
+
+    for (const sku of skus) {
+      const discountedPrice = Math.round(sku.mrpMinor * (1 - discountPct / 100));
+      const res = await processPosPriceUpdate({
+        storeId: sku.storeId,
+        skuCode: sku.code,
+        newPriceMinor: discountedPrice,
+        mrpMinor: sku.mrpMinor,
+        promoBadge,
+        source: 'promo',
+      });
+      updated.push(res);
+    }
+
+    return reply.status(200).send({
+      success: true,
+      message: `Triggered flash sale on ${updated.length} SKUs`,
+      updated,
+    });
+  });
+
+  // Reset Prices to default
+  app.post('/api/pos/reset-prices', async (_request, reply) => {
+    const skus = await db.sku.findMany();
+    const updated = [];
+
+    for (const sku of skus) {
+      const res = await processPosPriceUpdate({
+        storeId: sku.storeId,
+        skuCode: sku.code,
+        newPriceMinor: sku.mrpMinor,
+        mrpMinor: sku.mrpMinor,
+        promoBadge: null,
+        source: 'manual',
+      });
+      updated.push(res);
+    }
+
+    return reply.status(200).send({
+      success: true,
+      message: `Reset prices on ${updated.length} SKUs`,
+      updated,
+    });
   });
 }

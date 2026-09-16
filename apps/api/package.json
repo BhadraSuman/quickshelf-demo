@@ -12,6 +12,7 @@
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
+    "@fastify/cors": "^10.0.2",
     "@quickshelf/config": "workspace:*",
     "@quickshelf/db": "workspace:*",
     "@quickshelf/esl-protocol": "workspace:*",

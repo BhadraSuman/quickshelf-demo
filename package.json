@@ -11,6 +11,10 @@
     "db:generate": "pnpm --filter @quickshelf/db generate",
     "db:migrate": "pnpm --filter @quickshelf/db migrate",
     "db:seed": "pnpm --filter @quickshelf/db seed",
+    "hub": "pnpm --filter @quickshelf/gateway-hub dev",
+    "engine": "pnpm --filter @quickshelf/sync-engine dev",
+    "api": "pnpm --filter @quickshelf/api dev",
+    "dashboard": "pnpm --filter @quickshelf/dashboard dev",
     "sim": "pnpm --filter esl-sim start"
   },
   "devDependencies": {

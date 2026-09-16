@@ -14,13 +14,15 @@
   "scripts": {
     "build": "tsc",
     "generate": "prisma generate",
+    "migrate": "prisma migrate deploy",
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "seed": "tsx src/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.4.1",
-    "@quickshelf/esl-protocol": "workspace:*"
+    "@quickshelf/esl-protocol": "workspace:*",
+    "dotenv": "^16.4.7"
   },
   "devDependencies": {
     "@types/node": "^22.13.5",
