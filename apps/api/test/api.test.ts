@@ -37,4 +37,75 @@ describe('API Server Endpoints', () => {
     });
     assert.equal(res.statusCode, 400);
   });
+
+  it('should return 200 on /api/fleet/status', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/fleet/status',
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.ok(typeof body.totalTags === 'number');
+    assert.ok(typeof body.divergedTags === 'number');
+  });
+
+  it('should return 200 on /api/stores', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/stores',
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.ok(Array.isArray(body));
+  });
+
+  it('should return 200 on /api/gateways', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/gateways',
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.ok(Array.isArray(body));
+  });
+
+  it('should return 200 on /api/tags', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/tags',
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.ok(Array.isArray(body));
+  });
+
+  it('should return 200 on /api/skus', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/skus',
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.ok(Array.isArray(body));
+  });
+
+  it('should return 200 on /api/audit', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/audit',
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.ok(Array.isArray(body));
+  });
+
+  it('should return 200 on /api/chaos/metrics', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/chaos/metrics',
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.ok(typeof body.totalCommands === 'number');
+  });
 });

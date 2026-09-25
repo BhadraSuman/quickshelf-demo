@@ -17,6 +17,7 @@
     "@quickshelf/db": "workspace:*",
     "@quickshelf/esl-protocol": "workspace:*",
     "fastify": "^5.2.1",
+    "ioredis": "^5.6.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
