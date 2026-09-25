@@ -8,14 +8,187 @@ generator client {
   binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
-model Store {
-  id       String    @id @default(cuid())
-  name     String
-  city     String
-  gateways Gateway[]
-  skus     Sku[]
-  tags     Tag[]
+// ---------------------------------------------------------
+// Multi-Tenant Hierarchy (SOW Section 4 & 5)
+// Platform -> Partner -> Organization -> Region -> Store -> Zone -> Aisle -> Bay -> Shelf
+// ---------------------------------------------------------
+
+model Organization {
+  id                    String           @id @default(cuid())
+  code                  String           @unique // e.g. "RELIANCE", "MORE"
+  name                  String
+  gstin                 String?          // Tax identification for Indian compliance
+  technicalContactEmail String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  stores                Store[]
+  regions               Region[]
+  users                 User[]
+  apiKeys               ApiKey[]
+  supportConsents       SupportConsent[]
 }
+
+model Partner {
+  id           String   @id @default(cuid())
+  code         String   @unique // e.g. "APEX-INST"
+  name         String
+  contactEmail String?
+  createdAt    DateTime @default(now())
+  users        User[]
+  stores       Store[]
+}
+
+model Region {
+  id        String       @id @default(cuid())
+  code      String
+  name      String
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  stores    Store[]
+
+  @@unique([orgId, code])
+}
+
+model Store {
+  id        String        @id @default(cuid())
+  name      String
+  city      String
+  orgId     String?
+  regionId  String?
+  partnerId String?
+  org       Organization? @relation(fields: [orgId], references: [id])
+  region    Region?       @relation(fields: [regionId], references: [id])
+  partner   Partner?      @relation(fields: [partnerId], references: [id])
+  zones     Zone[]
+  gateways  Gateway[]
+  skus      Sku[]
+  tags      Tag[]
+  users     User[]
+}
+
+// Store Layout Hierarchy (SOW STR-03)
+model Zone {
+  id      String  @id @default(cuid())
+  storeId String
+  code    String
+  name    String
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  aisles  Aisle[]
+
+  @@unique([storeId, code])
+}
+
+model Aisle {
+  id     String @id @default(cuid())
+  zoneId String
+  code   String
+  name   String
+  zone   Zone   @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  bays   Bay[]
+
+  @@unique([zoneId, code])
+}
+
+model Bay {
+  id      String  @id @default(cuid())
+  aisleId String
+  code    String
+  name    String
+  aisle   Aisle   @relation(fields: [aisleId], references: [id], onDelete: Cascade)
+  shelves Shelf[]
+
+  @@unique([aisleId, code])
+}
+
+model Shelf {
+  id    String @id @default(cuid())
+  bayId String
+  code  String
+  name  String
+  bay   Bay    @relation(fields: [bayId], references: [id], onDelete: Cascade)
+  tags  Tag[]
+
+  @@unique([bayId, code])
+}
+
+// ---------------------------------------------------------
+// User & RBAC Primitives (SOW Section 4 Permissions Matrix)
+// ---------------------------------------------------------
+
+enum Role {
+  // Quickshelf Platform
+  SUPER_ADMIN
+  OPERATIONS_MANAGER
+  SUPPORT_ENGINEER
+  FIRMWARE_ENGINEER
+  VIEWER
+
+  // Installer Partner
+  PARTNER_ADMIN
+  FIELD_TECHNICIAN
+
+  // Retailer Organization
+  RETAIL_OWNER
+  PRICING_MANAGER
+  STORE_MANAGER
+  STORE_STAFF
+}
+
+model User {
+  id              String           @id @default(cuid())
+  email           String           @unique
+  name            String
+  passwordHash    String
+  role            Role
+  orgId           String?
+  partnerId       String?
+  storeId         String?
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  org             Organization?    @relation(fields: [orgId], references: [id])
+  partner         Partner?         @relation(fields: [partnerId], references: [id])
+  store           Store?           @relation(fields: [storeId], references: [id])
+  sessions        Session[]
+  grantedConsents SupportConsent[]
+}
+
+model Session {
+  id              String   @id @default(cuid())
+  userId          String
+  token           String   @unique
+  technicianJobId String?  // Time-bound technician job scope (SOW ACC-04)
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ApiKey {
+  id         String       @id @default(cuid())
+  name       String
+  key        String       @unique
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdAt  DateTime     @default(now())
+  lastUsedAt DateTime?
+}
+
+model SupportConsent {
+  id              String       @id @default(cuid())
+  orgId           String
+  storeId         String?
+  grantedByUserId String
+  reason          String
+  expiresAt       DateTime
+  active          Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  grantedBy       User         @relation(fields: [grantedByUserId], references: [id])
+}
+
+// ---------------------------------------------------------
+// Hardware & Core ESL Engine
+// ---------------------------------------------------------
 
 model Gateway {
   id            String        @id @default(cuid())
@@ -53,6 +226,7 @@ model Tag {
   hardwareId String   @unique
   size       TagSize
   skuId      String?
+  shelfId    String?
 
   desiredVersion Int     @default(0)
   desiredHash    String?
@@ -68,6 +242,7 @@ model Tag {
   store   Store           @relation(fields: [storeId], references: [id])
   gateway Gateway         @relation(fields: [gatewayId], references: [id])
   sku     Sku?            @relation(fields: [skuId], references: [id])
+  shelf   Shelf?          @relation(fields: [shelfId], references: [id])
   targets CommandTarget[]
 }
 

@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { registerRoutes } from './routes.js';
+import { registerAuthRoutes } from './routes/auth.js';
 
 export async function createServer(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -12,6 +13,7 @@ export async function createServer(): Promise<FastifyInstance> {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
 
+  await registerAuthRoutes(app);
   await registerRoutes(app);
   return app;
 }
