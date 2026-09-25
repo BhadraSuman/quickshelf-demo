@@ -103,6 +103,67 @@ export async function registerRoutes(app: FastifyInstance) {
     return reply.status(201).send({ success: true, store });
   });
 
+  // SOW §5 Mathematical Hardware Sizing & Auto-BOM Calculator
+  app.post('/api/stores/bom-calculate', async (request, reply) => {
+    const schema = z.object({
+      floorAreaSqFt: z.number().positive(),
+      totalLabels: z.number().int().positive(),
+      coveragePerGatewaySqFt: z.number().positive().default(2500),
+      capacityPerGateway: z.number().int().positive().default(3000),
+      headroomFactor: z.number().min(0.1).max(1.0).default(0.7), // 30% capacity safety margin
+    });
+
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ success: false, error: parsed.error.issues });
+    }
+
+    const { floorAreaSqFt, totalLabels, coveragePerGatewaySqFt, capacityPerGateway, headroomFactor } = parsed.data;
+
+    // Formula: N_gateways = max( ceil(A / a), ceil(L / (0.7 * C)) )
+    const gatewaysByArea = Math.ceil(floorAreaSqFt / coveragePerGatewaySqFt);
+    const effectiveCapacityPerGateway = capacityPerGateway * headroomFactor;
+    const gatewaysByCapacity = Math.ceil(totalLabels / effectiveCapacityPerGateway);
+    let totalGateways = Math.max(gatewaysByArea, gatewaysByCapacity);
+
+    // Recommended: one extra gateway in stores above 1,500 labels if labels can fail over
+    const extraGatewayRecommended = totalLabels > 1500;
+    if (extraGatewayRecommended) {
+      totalGateways += 1;
+    }
+
+    // Recommended Label Mix breakdown based on typical supermarket proportions
+    const labelMix = {
+      T154: Math.round(totalLabels * 0.15), // Spices, cosmetics
+      T213: Math.round(totalLabels * 0.35), // Standard grocery
+      T290: Math.round(totalLabels * 0.30), // Packaged goods
+      T420: Math.round(totalLabels * 0.12), // Fresh, produce
+      T750: Math.round(totalLabels * 0.05), // Endcaps, promo headers
+      T1020: Math.max(0, totalLabels - Math.round(totalLabels * 0.97)), // Pallet bays
+    };
+
+    return reply.status(200).send({
+      success: true,
+      formula: 'N_gateways = max( ceil(A / a), ceil(L / (0.7 * C)) )',
+      inputs: {
+        floorAreaSqFt,
+        totalLabels,
+        coveragePerGatewaySqFt,
+        capacityPerGateway,
+        headroomMarginPct: Math.round((1 - headroomFactor) * 100),
+      },
+      results: {
+        gatewaysByArea,
+        gatewaysByCapacity,
+        baseGatewaysNeeded: Math.max(gatewaysByArea, gatewaysByCapacity),
+        extraGatewayForFailover: extraGatewayRecommended ? 1 : 0,
+        totalGatewaysRecommended: totalGateways,
+        recommendedSparesLabels: Math.ceil(totalLabels * 0.03), // 3% spares recommendation
+        recommendedLabelMix: labelMix,
+      },
+    });
+  });
+
   // ==========================================
   // Gateways (Access Points) Management
   // ==========================================
@@ -488,6 +549,13 @@ export async function registerRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: parsed.error.issues });
     }
 
+    if (parsed.data.priceMinor > parsed.data.mrpMinor) {
+      return reply.status(400).send({
+        success: false,
+        error: `Commercial Guardrail Violation (PRC-04): Selling price (₹${(parsed.data.priceMinor / 100).toFixed(2)}) cannot exceed MRP (₹${(parsed.data.mrpMinor / 100).toFixed(2)}).`,
+      });
+    }
+
     const created = await db.$transaction(async (tx) => {
       const sku = await tx.sku.create({
         data: {
@@ -544,6 +612,13 @@ export async function registerRoutes(app: FastifyInstance) {
     const newMrpMinor = parsed.data.mrpMinor ?? sku.mrpMinor;
     const newName = parsed.data.name ?? sku.name;
     const newPromoBadge = parsed.data.promoBadge !== undefined ? parsed.data.promoBadge : sku.promoBadge;
+
+    if (newPriceMinor > newMrpMinor) {
+      return reply.status(400).send({
+        success: false,
+        error: `Commercial Guardrail Violation (PRC-04): Selling price (₹${(newPriceMinor / 100).toFixed(2)}) cannot exceed MRP (₹${(newMrpMinor / 100).toFixed(2)}).`,
+      });
+    }
 
     const nextVersion = sku.version + 1;
 

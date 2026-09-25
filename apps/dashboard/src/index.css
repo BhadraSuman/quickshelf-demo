@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 :root {
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
@@ -9,21 +11,47 @@
 
 body {
   margin: 0;
-  background-color: #090d16;
-  color: #f1f5f9;
+  padding: 0;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-button {
-  font-family: inherit;
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' on, 'zero' on;
 }
 
-input, select {
-  font-family: inherit;
-  outline: none;
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-input:focus, select:focus {
-  border-color: #3b82f6 !important;
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 14px rgba(245, 158, 11, 0.3);
+    border-color: #f59e0b;
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(245, 158, 11, 0.6);
+    border-color: #fbbf24;
+  }
+}
+
+.anim-diverged-pulse {
+  animation: pulseGlow 2s infinite ease-in-out;
 }
