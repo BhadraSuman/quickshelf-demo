@@ -335,4 +335,81 @@ describe('API Server & RBAC Endpoints', () => {
     const body = JSON.parse(res.body);
     assert.ok(typeof body.totalCommands === 'number');
   });
+
+  // ==========================================
+  // SOW §6 & §8 Store Onboarding Pipeline Tests
+  // ==========================================
+  it('should retrieve store layout hierarchy on GET /api/onboarding/:storeId/hierarchy', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/onboarding/store-blr-koramangala/hierarchy',
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.success, true);
+    assert.equal(body.store.id, 'store-blr-koramangala');
+    assert.ok(Array.isArray(body.store.zones));
+  });
+
+  it('should batch configure layout hierarchy on POST /api/onboarding/:storeId/hierarchy (STR-03)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/onboarding/store-blr-koramangala/hierarchy',
+      payload: {
+        zones: [
+          {
+            code: 'Z-FRESH',
+            name: 'Fresh Produce & Fruits',
+            aisles: [
+              {
+                code: 'A-FRESH-1',
+                name: 'Organic Fruits & Greens',
+                baysCount: 3,
+                shelvesPerBay: 3,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.success, true);
+    assert.ok(body.hierarchySummary.length >= 1);
+  });
+
+  it('should run Stage 8 RF burst stress test simulation', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/onboarding/store-blr-koramangala/stress-test',
+      payload: {
+        targetBurstCount: 200,
+        targetThroughputTagsPerSec: 50,
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.success, true);
+    assert.equal(body.benchmark.meetsSowRequirement, true);
+    assert.ok(body.benchmark.packetSuccessRatePct >= 99);
+  });
+
+  it('should execute Stage 9 digital sign-off and issue Commissioning Certificate', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/onboarding/store-blr-koramangala/signoff',
+      payload: {
+        installerName: 'Ramesh Kumar',
+        installerCompany: 'Apex Field Services Pvt Ltd',
+        retailManagerName: 'Anand Verma',
+        notes: 'Full store commissioned with 0% blind spots.',
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.success, true);
+    assert.ok(body.certificate.certificateId.startsWith('CERT-ONB-'));
+    assert.equal(body.certificate.status, 'ACTIVE_LIVE');
+    assert.ok(body.certificate.installerSignoff.digitalFingerprint.startsWith('sha256:'));
+  });
 });
