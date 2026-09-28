@@ -1,7 +1,17 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { StoreData, TagData, EInkRefreshPhase } from '../types';
-import { renderTagToCanvas, getTagPixelDimensions, EPAPER_COLORS } from '../engine/epaperRenderer';
+import { renderTagToCanvas, getTagPixelDimensions } from '../engine/epaperRenderer';
+import {
+  generateFloorTexture,
+  generatePegboardTexture,
+  generateAttaTexture,
+  generateBasmatiTexture,
+  generateDalTexture,
+  generateSpiceBoxTexture,
+  generateOilLabelTexture,
+  generateKajuKatliTexture,
+} from '../engine/packagingTextures';
 
 interface ThreeStoreCanvasProps {
   store: StoreData;
@@ -12,7 +22,7 @@ interface ThreeStoreCanvasProps {
   locatingTagId: string | null;
   refreshingTagId: string | null;
   refreshPhase: EInkRefreshPhase;
-  guidedTourIndex: number | null; // index of active tour stop, or null
+  guidedTourIndex: number | null;
   onGuidedTourNext?: () => void;
   onFloorClickTeleport?: (pos: [number, number, number]) => void;
   onCameraMove?: (pos: [number, number, number], rotY: number) => void;
@@ -46,7 +56,6 @@ const checkGondolaCollision = (testPos: THREE.Vector3, aisles: StoreData['aisles
 export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
   store,
   activeAisleIndex,
-  selectedTag,
   onSelectTag,
   onHoverTag,
   locatingTagId,
@@ -76,22 +85,40 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
     duration: number;
   } | null>(null);
 
-  // Mouse drag look
+  // Mouse drag look with smooth damping
   const isDraggingRef = useRef<boolean>(false);
   const previousMousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const cameraYawRef = useRef<number>(0);
   const cameraPitchRef = useRef<number>(0);
+  const targetYawRef = useRef<number>(0);
+  const targetPitchRef = useRef<number>(0);
 
-  // Keyboard navigation
+  // Keyboard navigation with inertia damping
   const keysPressedRef = useRef<{ [key: string]: boolean }>({});
+  const velocityRef = useRef<THREE.Vector3>(new THREE.Vector3());
+
+  // Interactive Floor Reticle & Dynamic Pick-to-Light PointLight
+  const floorReticleRef = useRef<THREE.Mesh | null>(null);
+  const ptlLightRef = useRef<THREE.PointLight | null>(null);
 
   // Hover state
   const hoveredTagRef = useRef<TagData | null>(null);
 
+  // Stable callback refs to prevent scene re-initialization
+  const onSelectTagRef = useRef(onSelectTag);
+  const onHoverTagRef = useRef(onHoverTag);
+  const onCameraMoveRef = useRef(onCameraMove);
+
+  useEffect(() => {
+    onSelectTagRef.current = onSelectTag;
+    onHoverTagRef.current = onHoverTag;
+    onCameraMoveRef.current = onCameraMove;
+  });
+
   // -----------------------------------------------------------------
   // Smooth Glide Animation Function
   // -----------------------------------------------------------------
-  const glideTo = useCallback((destPos: THREE.Vector3, destTarget: THREE.Vector3, durationMs: number = 800) => {
+  const glideTo = useCallback((destPos: THREE.Vector3, destTarget: THREE.Vector3, durationMs: number = 850) => {
     glideStartRef.current = {
       startPos: cameraPosRef.current.clone(),
       destPos: destPos.clone(),
@@ -124,7 +151,7 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
     if (prevAisleRef.current === activeAisleIndex) return;
     prevAisleRef.current = activeAisleIndex;
 
-    if (locatingTagId) return;
+    if (locatingTagId) return; // Tag glide takes priority
 
     const aisle = store.aisles[activeAisleIndex];
     if (aisle) {
@@ -153,12 +180,22 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
     tagMeshesRef.current.forEach((tagRef, id) => {
       if (id === locatingTagId) {
         tagRef.ledMaterial.emissive.setHex(0x10b981);
-        tagRef.ledMaterial.emissiveIntensity = 4.0;
+        tagRef.ledMaterial.emissiveIntensity = 4.5;
+        if (ptlLightRef.current) {
+          const worldPos = new THREE.Vector3();
+          tagRef.ledMesh.getWorldPosition(worldPos);
+          ptlLightRef.current.position.copy(worldPos).add(new THREE.Vector3(0.12, 0, 0));
+          ptlLightRef.current.intensity = 3.5;
+        }
       } else {
         tagRef.ledMaterial.emissive.setHex(0x000000);
         tagRef.ledMaterial.emissiveIntensity = 0.0;
       }
     });
+
+    if (!locatingTagId && ptlLightRef.current) {
+      ptlLightRef.current.intensity = 0;
+    }
 
     if (locatingTagId) {
       const tagRef = tagMeshesRef.current.get(locatingTagId);
@@ -166,7 +203,7 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
         const tagWorldPos = new THREE.Vector3();
         tagRef.mesh.getWorldPosition(tagWorldPos);
         const viewPos = new THREE.Vector3(
-          tagWorldPos.x + 0.72,
+          tagWorldPos.x + 0.68,
           Math.max(1.35, tagWorldPos.y + 0.05),
           tagWorldPos.z
         );
@@ -187,8 +224,8 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
 
     // 1. Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xfafaf7); // Warm paper canvas background
-    scene.fog = new THREE.Fog(0xfafaf7, 12, 28);
+    scene.background = new THREE.Color(0xf6f5f0);
+    scene.fog = new THREE.Fog(0xf6f5f0, 14, 30);
     sceneRef.current = scene;
 
     // 2. Camera
@@ -196,60 +233,66 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
     camera.position.set(...store.defaultCameraPos);
     camera.lookAt(new THREE.Vector3(...store.defaultLookAt));
     cameraRef.current = camera;
+    targetYawRef.current = 0;
+    targetPitchRef.current = 0;
 
     // 3. Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.shadowMap.enabled = false;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.15;
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // 4. Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+    // 4. Lighting (Warm Commercial Retail Store Illumination)
+    const ambientLight = new THREE.AmbientLight(0xfffbf5, 1.35);
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xfff8ee, 1.8);
-    dirLight.position.set(5, 12, 8);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 1024;
-    dirLight.shadow.mapSize.height = 1024;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 30;
-    dirLight.shadow.camera.left = -10;
-    dirLight.shadow.camera.right = 10;
-    dirLight.shadow.camera.top = 10;
-    dirLight.shadow.camera.bottom = -10;
-    dirLight.shadow.bias = -0.0005;
+    const dirLight = new THREE.DirectionalLight(0xfff7ea, 1.8);
+    dirLight.position.set(6, 14, 7);
     scene.add(dirLight);
 
-    // Subtle ceiling downlights along aisles
-    const storePointLight = new THREE.PointLight(0xffffff, 0.8, 15);
-    storePointLight.position.set(0, 4.5, 0);
-    scene.add(storePointLight);
+    // Warm overhead downlight cluster
+    const centralStoreLight = new THREE.PointLight(0xfffaed, 0.95, 20);
+    centralStoreLight.position.set(0, 4.6, 0);
+    scene.add(centralStoreLight);
 
-    // 5. Floor (Light polished tile with soft grid)
+    // Dynamic Pick-to-Light Glow Light
+    const ptlPointLight = new THREE.PointLight(0x10b981, 0, 2.5);
+    scene.add(ptlPointLight);
+    ptlLightRef.current = ptlPointLight;
+
+    // 5. Floor (Polished Supermarket Terrazzo / Large Format Ceramic Tile)
+    const floorTexture = generateFloorTexture();
     const floorGeo = new THREE.PlaneGeometry(36, 36);
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0xeeeeea,
-      roughness: 0.35,
+      map: floorTexture,
+      roughness: 0.25,
       metalness: 0.05,
     });
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
     floor.name = 'store-floor';
     scene.add(floor);
 
-    // Floor subtle grid lines
-    const grid = new THREE.GridHelper(36, 36, 0xd0cfc8, 0xe4e3dc);
-    grid.position.y = 0.002;
-    scene.add(grid);
+    // Interactive Floor Click-to-Walk Reticle Projection
+    const reticleGeo = new THREE.RingGeometry(0.25, 0.34, 32);
+    const reticleMat = new THREE.MeshBasicMaterial({
+      color: 0x006153,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    const reticleMesh = new THREE.Mesh(reticleGeo, reticleMat);
+    reticleMesh.rotation.x = -Math.PI / 2;
+    reticleMesh.position.y = 0.008;
+    scene.add(reticleMesh);
+    floorReticleRef.current = reticleMesh;
 
-    // 6. Ceiling & Access Point (Sub-1 GHz Gateway Hub)
+    // 6. Ceiling & Retail Gateway Hub
     const ceilingGeo = new THREE.PlaneGeometry(36, 36);
     const ceilingMat = new THREE.MeshBasicMaterial({ color: 0xf4f4f0, side: THREE.DoubleSide });
     const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
@@ -257,45 +300,86 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
     ceiling.rotation.x = Math.PI / 2;
     scene.add(ceiling);
 
-    // Ceiling Gateway Access Points
-    const apGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.08, 24);
+    // Ceiling Gateway Access Points (Sub-1 GHz BLE 5.4 Base Station)
+    const apGroup = new THREE.Group();
+    const apGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.07, 24);
     const apMat = new THREE.MeshStandardMaterial({ color: 0x1f2328, roughness: 0.4 });
     const apMesh = new THREE.Mesh(apGeo, apMat);
-    apMesh.position.set(0, 5.14, 0);
-    scene.add(apMesh);
+    apMesh.position.set(0, 5.16, 0);
+    apGroup.add(apMesh);
 
-    // Gateway Active LED (Cyan)
-    const apLedGeo = new THREE.SphereGeometry(0.04, 12, 12);
-    const apLedMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 2.0 });
-    const apLed = new THREE.Mesh(apLedGeo, apLedMat);
-    apLed.position.set(0, 5.08, 0);
-    scene.add(apLed);
+    // Dual Status LEDs (Cyan BLE Link + Green Power)
+    const apLedGeo = new THREE.SphereGeometry(0.035, 12, 12);
+    const apLedMatCyan = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 2.2 });
+    const apLedCyan = new THREE.Mesh(apLedGeo, apLedMatCyan);
+    apLedCyan.position.set(-0.1, 5.11, 0);
+    apGroup.add(apLedCyan);
+
+    const apLedMatGreen = new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x10b981, emissiveIntensity: 2.0 });
+    const apLedGreen = new THREE.Mesh(apLedGeo, apLedMatGreen);
+    apLedGreen.position.set(0.1, 5.11, 0);
+    apGroup.add(apLedGreen);
+    scene.add(apGroup);
 
     // -----------------------------------------------------------------
-    // Build Store Shelving & Mount Real E-Paper Tags
+    // Retail Gondola Shelving & Authentic Indian Packaging
     // -----------------------------------------------------------------
     tagMeshesRef.current.clear();
 
     const shelfMetalMat = new THREE.MeshStandardMaterial({
-      color: 0xd8dbe2, // Clean modern light-grey retail shelving
-      roughness: 0.4,
-      metalness: 0.2,
+      color: 0xe2e5eb,
+      roughness: 0.45,
+      metalness: 0.18,
     });
 
     const railMat = new THREE.MeshStandardMaterial({
-      color: 0x23272d, // Dark extruded mounting rail
-      roughness: 0.6,
+      color: 0x23272d,
+      roughness: 0.55,
     });
 
     const bezelMat = new THREE.MeshStandardMaterial({
-      color: 0x23272d, // Dark injection-molded tag plastic
-      roughness: 0.5,
+      color: 0x23272d,
+      roughness: 0.45,
     });
 
-    // -------------------------------------------------------------
-    // Instanced Shelving & Product Meshes (High Performance < 50 Draw Calls)
-    // -------------------------------------------------------------
+    // Perforated pegboard back panel
+    const pegboardTexture = generatePegboardTexture();
+    const pegboardMat = new THREE.MeshStandardMaterial({
+      map: pegboardTexture,
+      roughness: 0.5,
+      metalness: 0.08,
+    });
+
+    // Dark base kickplate plinth
+    const plinthMat = new THREE.MeshStandardMaterial({
+      color: 0x1e2328,
+      roughness: 0.65,
+    });
+
+    // Generate Procedural Packaging Textures
+    const attaTex = generateAttaTexture();
+    const basmatiTex = generateBasmatiTexture();
+    const toorDalTex = generateDalTexture('toor');
+    const moongDalTex = generateDalTexture('moong');
+    const spiceTex = generateSpiceBoxTexture();
+    const oilLabelTex = generateOilLabelTexture();
+    const sweetsTex = generateKajuKatliTexture();
+
+    // Packaging PBR Materials
+    const attaMat = new THREE.MeshStandardMaterial({ map: attaTex, roughness: 0.85 });
+    const basmatiMat = new THREE.MeshStandardMaterial({ map: basmatiTex, roughness: 0.45, metalness: 0.1 });
+    const dalMat = new THREE.MeshStandardMaterial({ map: toorDalTex, roughness: 0.35 });
+    const moongMat = new THREE.MeshStandardMaterial({ map: moongDalTex, roughness: 0.35 });
+    const spiceMat = new THREE.MeshStandardMaterial({ map: spiceTex, roughness: 0.5 });
+    const oilMat = new THREE.MeshStandardMaterial({ map: oilLabelTex, roughness: 0.25 });
+    const sweetsMat = new THREE.MeshStandardMaterial({ map: sweetsTex, roughness: 0.4, metalness: 0.3 });
+
+    // Track light suspended rails along each aisle
     const numAisles = store.aisles.length;
+    const trackRailGeo = new THREE.BoxGeometry(0.06, 0.05, 5.2);
+    const trackRailMat = new THREE.MeshStandardMaterial({ color: 0x181c21, roughness: 0.5 });
+    const trackRailMesh = new THREE.InstancedMesh(trackRailGeo, trackRailMat, numAisles);
+
     const numRows = numAisles * 2;
     const numTiers = 4;
     const tiers = [0.45, 1.05, 1.65, 2.25];
@@ -305,122 +389,148 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
     const totalBackPanels = numRows;
     const totalShelves = numRows * numTiers;
     const totalRails = numRows * numTiers;
+    const totalPlinths = numRows;
 
     const isSupermarket = store.type === 'supermarket';
-    const totalBottles = isSupermarket ? numRows * pPositions.length : 0;
-    const totalBoxes = isSupermarket
-      ? numRows * (numTiers - 1) * pPositions.length
-      : numRows * numTiers * pPositions.length;
+    const isSweets = store.type === 'sweets';
 
-    // Instanced geometries
+    // Instanced Geometries
     const uprightGeo = new THREE.BoxGeometry(0.08, 2.8, 0.08);
     const backPanelGeo = new THREE.BoxGeometry(0.04, 2.7, 4.4);
+    const plinthGeo = new THREE.BoxGeometry(0.7, 0.14, 4.4);
     const shelfGeo = new THREE.BoxGeometry(0.65, 0.04, 4.3);
     const railGeo = new THREE.BoxGeometry(0.03, 0.08, 4.3);
-    const boxGeo = new THREE.BoxGeometry(0.3, 0.4, 0.35);
-    const bottleGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.45, 12);
+
+    // Product Geometries
+    const boxGeo = new THREE.BoxGeometry(0.3, 0.4, 0.34);
+    const bottleGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.45, 16);
 
     const uprightMesh = new THREE.InstancedMesh(uprightGeo, shelfMetalMat, totalUprights);
-    uprightMesh.castShadow = true;
-    uprightMesh.receiveShadow = true;
-
-    const backPanelMesh = new THREE.InstancedMesh(backPanelGeo, shelfMetalMat, totalBackPanels);
-    backPanelMesh.receiveShadow = true;
-
+    const backPanelMesh = new THREE.InstancedMesh(backPanelGeo, pegboardMat, totalBackPanels);
+    const plinthMesh = new THREE.InstancedMesh(plinthGeo, plinthMat, totalPlinths);
     const shelfMesh = new THREE.InstancedMesh(shelfGeo, shelfMetalMat, totalShelves);
-    shelfMesh.castShadow = true;
-    shelfMesh.receiveShadow = true;
-
     const railMesh = new THREE.InstancedMesh(railGeo, railMat, totalRails);
 
-    const boxPalette = [
-      new THREE.Color(0x9a3412), // Atta
-      new THREE.Color(0x1e3a8a), // Basmati
-      new THREE.Color(0xd97706), // Toor Dal
-      new THREE.Color(0x047857), // Moong Dal
-      new THREE.Color(0xb91c1c), // Spices
-      new THREE.Color(0xf59e0b), // Golden Ghee
-    ];
-    const boxMat = new THREE.MeshStandardMaterial({ roughness: 0.5 });
-    const boxMesh = new THREE.InstancedMesh(boxGeo, boxMat, totalBoxes);
-    boxMesh.castShadow = true;
-    boxMesh.receiveShadow = true;
+    // Instanced Product Meshes per Packaging Group
+    const productsPerTier = numRows * pPositions.length;
+    const attaMesh = new THREE.InstancedMesh(boxGeo, attaMat, productsPerTier);
+    const basmatiMesh = new THREE.InstancedMesh(boxGeo, basmatiMat, productsPerTier);
+    const dalMesh = new THREE.InstancedMesh(boxGeo, isSweets ? sweetsMat : dalMat, productsPerTier);
+    const spiceMesh = new THREE.InstancedMesh(boxGeo, isSweets ? sweetsMat : spiceMat, productsPerTier);
 
     let bottleMesh: THREE.InstancedMesh | null = null;
-    if (totalBottles > 0) {
-      const bottleMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.3 });
-      bottleMesh = new THREE.InstancedMesh(bottleGeo, bottleMat, totalBottles);
-      bottleMesh.castShadow = true;
-      bottleMesh.receiveShadow = true;
+    if (isSupermarket) {
+      bottleMesh = new THREE.InstancedMesh(bottleGeo, oilMat, productsPerTier);
     }
 
     const dummy = new THREE.Object3D();
     let uprightIdx = 0;
     let backPanelIdx = 0;
+    let plinthIdx = 0;
     let shelfIdx = 0;
     let railIdx = 0;
-    let boxIdx = 0;
+
+    let attaIdx = 0;
+    let basmatiIdx = 0;
+    let dalIdx = 0;
+    let spiceIdx = 0;
     let bottleIdx = 0;
 
     store.aisles.forEach((aisle, aIdx) => {
       const aisleZ = (aIdx - store.aisles.length / 2) * 4.5;
+
+      // Suspended aisle track light beam
+      dummy.position.set(0, 4.4, aisleZ);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      trackRailMesh.setMatrixAt(aIdx, dummy.matrix);
+
+      // Warm downward spotlight for this aisle
+      const aisleSpot = new THREE.PointLight(0xfffaec, 0.85, 9);
+      aisleSpot.position.set(0, 4.3, aisleZ);
+      scene.add(aisleSpot);
+
       const rows = [
         { side: 'left', x: -1.8 },
         { side: 'right', x: 1.8 },
       ];
 
       rows.forEach((row) => {
-        // Upright post left
-        dummy.position.set(row.x, 1.4, aisleZ - 2.2);
+        // Baseboard plinth
+        dummy.position.set(row.x, 0.07, aisleZ);
         dummy.scale.set(1, 1, 1);
         dummy.rotation.set(0, 0, 0);
         dummy.updateMatrix();
+        plinthMesh.setMatrixAt(plinthIdx++, dummy.matrix);
+
+        // Slotted upright post left
+        dummy.position.set(row.x, 1.4, aisleZ - 2.2);
+        dummy.updateMatrix();
         uprightMesh.setMatrixAt(uprightIdx++, dummy.matrix);
 
-        // Upright post right
+        // Slotted upright post right
         dummy.position.set(row.x, 1.4, aisleZ + 2.2);
         dummy.updateMatrix();
         uprightMesh.setMatrixAt(uprightIdx++, dummy.matrix);
 
-        // Back panel
+        // Perforated pegboard back panel
         dummy.position.set(row.x + (row.side === 'left' ? -0.3 : 0.3), 1.4, aisleZ);
         dummy.updateMatrix();
         backPanelMesh.setMatrixAt(backPanelIdx++, dummy.matrix);
 
         // 4 tiers
         tiers.forEach((tierY, tIdx) => {
-          // Shelf board
+          // Metal shelf board
           dummy.position.set(row.x, tierY, aisleZ);
           dummy.scale.set(1, 1, 1);
           dummy.rotation.set(0, 0, 0);
           dummy.updateMatrix();
           shelfMesh.setMatrixAt(shelfIdx++, dummy.matrix);
 
-          // Dark mounting rail
+          // Mounting rail along front edge
           const railOffset = row.side === 'left' ? 0.33 : -0.33;
           dummy.position.set(row.x + railOffset, tierY - 0.01, aisleZ);
           dummy.updateMatrix();
           railMesh.setMatrixAt(railIdx++, dummy.matrix);
 
-          // Products
-          pPositions.forEach((p) => {
-            const isBottle = tIdx === 0 && isSupermarket;
-            if (isBottle && bottleMesh) {
-              dummy.position.set(row.x + (row.side === 'left' ? 0.1 : -0.1), tierY + 0.225, aisleZ + p);
-              dummy.scale.set(1, 1, 1);
-              dummy.rotation.set(0, 0, 0);
-              dummy.updateMatrix();
-              bottleMesh.setMatrixAt(bottleIdx++, dummy.matrix);
-            } else {
-              const heightScale = 0.95 + ((Math.abs(p * 10)) % 3) * 0.15;
-              dummy.position.set(row.x + (row.side === 'left' ? 0.05 : -0.05), tierY + 0.2 * heightScale + 0.02, aisleZ + p);
+          // Populate realistic packaging per tier
+          pPositions.forEach((p, pIdx) => {
+            const heightScale = 0.95 + ((Math.abs(p * 10)) % 3) * 0.12;
+            const xOffset = row.side === 'left' ? 0.05 : -0.05;
+
+            if (tIdx === 0) {
+              if (isSupermarket && bottleMesh) {
+                dummy.position.set(row.x + (row.side === 'left' ? 0.08 : -0.08), tierY + 0.225, aisleZ + p);
+                dummy.scale.set(1, 1, 1);
+                dummy.rotation.set(0, 0, 0);
+                dummy.updateMatrix();
+                bottleMesh.setMatrixAt(bottleIdx++, dummy.matrix);
+              } else {
+                dummy.position.set(row.x + xOffset, tierY + 0.2 * heightScale + 0.02, aisleZ + p);
+                dummy.scale.set(1, heightScale, 1);
+                dummy.rotation.set(0, 0, 0);
+                dummy.updateMatrix();
+                attaMesh.setMatrixAt(attaIdx++, dummy.matrix);
+              }
+            } else if (tIdx === 1) {
+              dummy.position.set(row.x + xOffset, tierY + 0.2 * heightScale + 0.02, aisleZ + p);
               dummy.scale.set(1, heightScale, 1);
               dummy.rotation.set(0, 0, 0);
               dummy.updateMatrix();
-              boxMesh.setMatrixAt(boxIdx, dummy.matrix);
-              const color = boxPalette[Math.floor(Math.abs(p * 5 + tIdx)) % boxPalette.length];
-              boxMesh.setColorAt(boxIdx, color);
-              boxIdx++;
+              basmatiMesh.setMatrixAt(basmatiIdx++, dummy.matrix);
+            } else if (tIdx === 2) {
+              dummy.position.set(row.x + xOffset, tierY + 0.2 * heightScale + 0.02, aisleZ + p);
+              dummy.scale.set(1, heightScale, 1);
+              dummy.rotation.set(0, 0, 0);
+              dummy.updateMatrix();
+              dalMesh.setMatrixAt(dalIdx++, dummy.matrix);
+            } else {
+              dummy.position.set(row.x + xOffset, tierY + 0.2 * heightScale + 0.02, aisleZ + p);
+              dummy.scale.set(1, heightScale, 1);
+              dummy.rotation.set(0, 0, 0);
+              dummy.updateMatrix();
+              spiceMesh.setMatrixAt(spiceIdx++, dummy.matrix);
             }
           });
         });
@@ -429,20 +539,38 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
 
     uprightMesh.instanceMatrix.needsUpdate = true;
     backPanelMesh.instanceMatrix.needsUpdate = true;
+    plinthMesh.instanceMatrix.needsUpdate = true;
     shelfMesh.instanceMatrix.needsUpdate = true;
     railMesh.instanceMatrix.needsUpdate = true;
-    boxMesh.instanceMatrix.needsUpdate = true;
-    if (boxMesh.instanceColor) boxMesh.instanceColor.needsUpdate = true;
+
+    attaMesh.instanceMatrix.needsUpdate = true;
+    basmatiMesh.instanceMatrix.needsUpdate = true;
+    dalMesh.instanceMatrix.needsUpdate = true;
+    spiceMesh.instanceMatrix.needsUpdate = true;
 
     scene.add(uprightMesh);
     scene.add(backPanelMesh);
+    scene.add(plinthMesh);
     scene.add(shelfMesh);
     scene.add(railMesh);
-    scene.add(boxMesh);
+    scene.add(attaMesh);
+    scene.add(basmatiMesh);
+    scene.add(dalMesh);
+    scene.add(spiceMesh);
+
     if (bottleMesh) {
       bottleMesh.instanceMatrix.needsUpdate = true;
       scene.add(bottleMesh);
     }
+
+    // Pre-calculate total physical ESL tags across all shelves
+    const totalTags = store.aisles.reduce(
+      (acc, a) => acc + a.shelves.reduce((sAcc, s) => sAcc + s.tags.length, 0),
+      0
+    );
+    const unitBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const tagCasingMesh = new THREE.InstancedMesh(unitBoxGeo, bezelMat, totalTags);
+    let tagCasingIdx = 0;
 
     // Mount physical ESL tags and hanging signs per aisle
     store.aisles.forEach((aisle, aIdx) => {
@@ -455,7 +583,7 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
           const worldWidth = tag.size === '1.54' ? 0.22 : tag.size === '2.13' ? 0.36 : tag.size === '2.9' ? 0.42 : 0.58;
           const worldHeight = worldWidth / dims.aspectRatio;
 
-          // 1. Offscreen Canvas for e-paper texture
+          // 1. Offscreen Canvas for authentic e-paper texture
           const canvas = document.createElement('canvas');
           canvas.width = dims.width;
           canvas.height = dims.height;
@@ -469,38 +597,45 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
           texture.magFilter = THREE.LinearFilter;
           texture.generateMipmaps = false;
 
-          // 3. Tag Bezel Casing (Physical hardware)
-          const tagGroup = new THREE.Group();
-          const casingGeo = new THREE.BoxGeometry(worldWidth + 0.02, worldHeight + 0.02, 0.015);
-          const casingMesh = new THREE.Mesh(casingGeo, bezelMat);
-          tagGroup.add(casingMesh);
+          // Ergonomic upward tilt toward shopper eye level
+          const tierY = shelf.tierNumber === 1 ? 1.65 : 1.05;
+          const tiltX = shelf.tierNumber === 1 ? -0.08 : -0.16;
 
-          // 4. Tag Screen Face
+          // 3. Instanced Tag Casing with integrated rail clip bracket
+          const casingEuler = new THREE.Euler(tiltX, Math.PI / 2, 0, 'XYZ');
+          dummy.position.set(-1.47, tierY - 0.01, aisleZ + tag.positionX);
+          dummy.rotation.copy(casingEuler);
+          dummy.scale.set(worldWidth + 0.02, worldHeight + 0.02, 0.016);
+          dummy.updateMatrix();
+          tagCasingMesh.setMatrixAt(tagCasingIdx++, dummy.matrix);
+
+          // 4. Tag Screen Face & LED Group
+          const tagGroup = new THREE.Group();
+
           const screenGeo = new THREE.PlaneGeometry(worldWidth, worldHeight);
           const screenMat = new THREE.MeshStandardMaterial({
             map: texture,
-            roughness: 0.9, // Matte e-paper paper finish
+            roughness: 0.92, // Matte electrophoretic paper finish
             metalness: 0.0,
           });
           const screenMesh = new THREE.Mesh(screenGeo, screenMat);
-          screenMesh.position.z = 0.009;
+          screenMesh.position.z = 0.01;
           screenMesh.name = `tag-${tag.id}`;
           tagGroup.add(screenMesh);
 
           // 5. Pick-to-light LED Bead (Top right corner of bezel)
-          const ledGeo = new THREE.SphereGeometry(0.01, 8, 8);
+          const ledGeo = new THREE.SphereGeometry(0.012, 10, 10);
           const ledMat = new THREE.MeshStandardMaterial({
             color: 0x222222,
             roughness: 0.2,
           });
           const ledMesh = new THREE.Mesh(ledGeo, ledMat);
-          ledMesh.position.set(worldWidth / 2 - 0.01, worldHeight / 2 - 0.01, 0.01);
+          ledMesh.position.set(worldWidth / 2 - 0.01, worldHeight / 2 - 0.01, 0.012);
           tagGroup.add(ledMesh);
 
-          // Position Tag on Left row shelf rail
-          const tierY = shelf.tierNumber === 1 ? 1.65 : 1.05;
           tagGroup.position.set(-1.47, tierY - 0.01, aisleZ + tag.positionX);
           tagGroup.rotation.y = Math.PI / 2;
+          tagGroup.rotation.x = tiltX;
           scene.add(tagGroup);
 
           tagMeshesRef.current.set(tag.id, {
@@ -544,6 +679,12 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
       scene.add(signGroup);
     });
 
+    trackRailMesh.instanceMatrix.needsUpdate = true;
+    scene.add(trackRailMesh);
+
+    tagCasingMesh.instanceMatrix.needsUpdate = true;
+    scene.add(tagCasingMesh);
+
     // -----------------------------------------------------------------
     // Raycaster for Tag Clicking & Floor Teleport
     // -----------------------------------------------------------------
@@ -572,38 +713,44 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
         const deltaY = e.clientY - previousMousePosRef.current.y;
         previousMousePosRef.current = { x: e.clientX, y: e.clientY };
 
-        cameraYawRef.current -= deltaX * 0.003;
-        cameraPitchRef.current = Math.max(-0.6, Math.min(0.6, cameraPitchRef.current - deltaY * 0.003));
-
-        const lookDir = new THREE.Vector3(
-          Math.sin(cameraYawRef.current) * Math.cos(cameraPitchRef.current),
-          Math.sin(cameraPitchRef.current),
-          -Math.cos(cameraYawRef.current) * Math.cos(cameraPitchRef.current)
-        );
-        cameraTargetRef.current.copy(cameraPosRef.current).add(lookDir);
-        camera.lookAt(cameraTargetRef.current);
+        targetYawRef.current -= deltaX * 0.003;
+        targetPitchRef.current = Math.max(-0.6, Math.min(0.6, targetPitchRef.current - deltaY * 0.003));
         return;
       }
 
-      // 2. Hover detection over tags
+      // 2. Hover detection over tags & floor reticle
       const intersects = getRaycastIntersects(e);
       let foundTag: TagData | null = null;
+      let floorPoint: THREE.Vector3 | null = null;
 
       for (const hit of intersects) {
-        if (hit.object.name && hit.object.name.startsWith('tag-')) {
+        if (!foundTag && hit.object.name && hit.object.name.startsWith('tag-')) {
           const tagId = hit.object.name.replace('tag-', '');
           const tagRef = tagMeshesRef.current.get(tagId);
           if (tagRef) {
             foundTag = tagRef.tag;
-            break;
           }
+        }
+        if (!floorPoint && hit.object.name === 'store-floor') {
+          floorPoint = hit.point;
+        }
+      }
+
+      // Floor reticle positioning
+      if (floorReticleRef.current) {
+        if (floorPoint && !checkGondolaCollision(floorPoint, store.aisles)) {
+          floorReticleRef.current.position.x = floorPoint.x;
+          floorReticleRef.current.position.z = floorPoint.z;
+          (floorReticleRef.current.material as THREE.MeshBasicMaterial).opacity = 0.75;
+        } else {
+          (floorReticleRef.current.material as THREE.MeshBasicMaterial).opacity = 0;
         }
       }
 
       if (foundTag !== hoveredTagRef.current) {
         hoveredTagRef.current = foundTag;
         container.style.cursor = foundTag ? 'pointer' : 'default';
-        onHoverTag(foundTag, foundTag ? { x: e.clientX, y: e.clientY } : undefined);
+        onHoverTagRef.current(foundTag, foundTag ? { x: e.clientX, y: e.clientY } : undefined);
       }
     };
 
@@ -618,13 +765,17 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
           const tagId = hit.object.name.replace('tag-', '');
           const tagRef = tagMeshesRef.current.get(tagId);
           if (tagRef) {
-            onSelectTag(tagRef.tag);
+            onSelectTagRef.current(tagRef.tag);
 
-            // Glide camera in front of the tag
+            // Glide camera into close-up inspection view
             const tagWorldPos = new THREE.Vector3();
             hit.object.getWorldPosition(tagWorldPos);
-            const viewPos = tagWorldPos.clone().add(new THREE.Vector3(0.65, 0.05, 0));
-            glideTo(viewPos, tagWorldPos, 700);
+            const viewPos = new THREE.Vector3(
+              tagWorldPos.x + 0.68,
+              Math.max(1.35, tagWorldPos.y + 0.05),
+              tagWorldPos.z
+            );
+            glideTo(viewPos, tagWorldPos, 750);
             return;
           }
         }
@@ -632,7 +783,7 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
         // Floor Click -> Teleport
         if (hit.object.name === 'store-floor') {
           const targetPoint = hit.point.clone();
-          targetPoint.y = 1.6; // Keep at eye height
+          targetPoint.y = 1.6;
           if (!checkGondolaCollision(targetPoint, store.aisles)) {
             glideTo(targetPoint, targetPoint.clone().add(new THREE.Vector3(0, 0, -2)), 800);
           }
@@ -656,12 +807,16 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
     window.addEventListener('keyup', handleKeyUp);
 
     // -----------------------------------------------------------------
-    // Render & Animation Loop (60 FPS)
+    // Render & Animation Loop (60 FPS with Smooth Inertia Damping)
     // -----------------------------------------------------------------
     let animationFrameId: number;
 
     const animate = (time: number) => {
       animationFrameId = requestAnimationFrame(animate);
+
+      // Smooth camera yaw/pitch damping
+      cameraYawRef.current = THREE.MathUtils.lerp(cameraYawRef.current, targetYawRef.current, 0.22);
+      cameraPitchRef.current = THREE.MathUtils.lerp(cameraPitchRef.current, targetPitchRef.current, 0.22);
 
       // 1. Handle Glide Interpolation
       if (isGlidingRef.current && glideStartRef.current) {
@@ -680,11 +835,13 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
         camera.lookAt(currentTarget);
 
         const lookDir = currentTarget.clone().sub(currentPos).normalize();
-        cameraYawRef.current = Math.atan2(lookDir.x, -lookDir.z);
-        cameraPitchRef.current = Math.asin(Math.max(-0.99, Math.min(0.99, lookDir.y)));
+        targetYawRef.current = Math.atan2(lookDir.x, -lookDir.z);
+        targetPitchRef.current = Math.asin(Math.max(-0.99, Math.min(0.99, lookDir.y)));
+        cameraYawRef.current = targetYawRef.current;
+        cameraPitchRef.current = targetPitchRef.current;
 
-        if (onCameraMove) {
-          onCameraMove([currentPos.x, currentPos.y, currentPos.z], cameraYawRef.current);
+        if (onCameraMoveRef.current) {
+          onCameraMoveRef.current([currentPos.x, currentPos.y, currentPos.z], cameraYawRef.current);
         }
 
         if (progress >= 1) {
@@ -692,8 +849,7 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
           glideStartRef.current = null;
         }
       } else {
-        // 2. Keyboard Movement (WASD) with Gondola Shelf Collision
-        const moveSpeed = 0.06;
+        // 2. Keyboard Movement (WASD) with Inertia Damping & Shelf Collision
         const forward = new THREE.Vector3(
           Math.sin(cameraYawRef.current),
           0,
@@ -711,10 +867,18 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
         if (keysPressedRef.current['d'] || keysPressedRef.current['arrowright']) moveDir.add(right);
         if (keysPressedRef.current['a'] || keysPressedRef.current['arrowleft']) moveDir.sub(right);
 
+        // Apply smooth acceleration
+        const accel = 0.016;
+        const friction = 0.82;
         if (moveDir.lengthSq() > 0) {
-          moveDir.normalize().multiplyScalar(moveSpeed);
-          const targetX = Math.max(-4.5, Math.min(4.5, camera.position.x + moveDir.x));
-          const targetZ = Math.max(-12, Math.min(12, camera.position.z + moveDir.z));
+          moveDir.normalize().multiplyScalar(accel);
+          velocityRef.current.add(moveDir);
+        }
+        velocityRef.current.multiplyScalar(friction);
+
+        if (velocityRef.current.lengthSq() > 0.000005) {
+          const targetX = Math.max(-4.5, Math.min(4.5, camera.position.x + velocityRef.current.x));
+          const targetZ = Math.max(-12, Math.min(12, camera.position.z + velocityRef.current.z));
 
           // Collision detection against gondolas with smooth wall sliding
           const bothPos = new THREE.Vector3(targetX, 1.6, targetZ);
@@ -744,8 +908,21 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
           cameraTargetRef.current.copy(camera.position).add(lookDir);
           camera.lookAt(cameraTargetRef.current);
 
-          if (onCameraMove) {
-            onCameraMove([camera.position.x, camera.position.y, camera.position.z], cameraYawRef.current);
+          if (onCameraMoveRef.current) {
+            onCameraMoveRef.current([camera.position.x, camera.position.y, camera.position.z], cameraYawRef.current);
+          }
+        } else if (isDraggingRef.current) {
+          // Drag look only
+          const lookDir = new THREE.Vector3(
+            Math.sin(cameraYawRef.current) * Math.cos(cameraPitchRef.current),
+            Math.sin(cameraPitchRef.current),
+            -Math.cos(cameraYawRef.current) * Math.cos(cameraPitchRef.current)
+          );
+          cameraTargetRef.current.copy(camera.position).add(lookDir);
+          camera.lookAt(cameraTargetRef.current);
+
+          if (onCameraMoveRef.current) {
+            onCameraMoveRef.current([camera.position.x, camera.position.y, camera.position.z], cameraYawRef.current);
           }
         }
       }
@@ -755,8 +932,18 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
         const tagRef = tagMeshesRef.current.get(locatingTagId);
         if (tagRef) {
           const pulse = (Math.sin(time * 0.008) + 1) * 2;
-          tagRef.ledMaterial.emissiveIntensity = 2.0 + pulse;
+          tagRef.ledMaterial.emissiveIntensity = 2.5 + pulse;
         }
+        if (ptlLightRef.current) {
+          const lightPulse = (Math.sin(time * 0.008) + 1) * 1.5;
+          ptlLightRef.current.intensity = 2.0 + lightPulse;
+        }
+      }
+
+      // Floor reticle pulse
+      if (floorReticleRef.current && (floorReticleRef.current.material as THREE.MeshBasicMaterial).opacity > 0) {
+        const ringScale = 1.0 + Math.sin(time * 0.005) * 0.04;
+        floorReticleRef.current.scale.set(ringScale, ringScale, 1);
       }
 
       // FPS tracking
@@ -816,7 +1003,7 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
       }
       renderer.dispose();
     };
-  }, [store, glideTo, onSelectTag, onHoverTag, onCameraMove]);
+  }, [store, glideTo]);
 
   return (
     <div className="relative w-full h-full select-none overflow-hidden">

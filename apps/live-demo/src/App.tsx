@@ -59,6 +59,16 @@ export const App: React.FC = () => {
     setSelectedTag(tag);
   }, []);
 
+  const handleHoverTag = useCallback((tag: TagData | null, pos?: { x: number; y: number }) => {
+    setHoveredTag(tag);
+    setHoverScreenPos(pos || null);
+  }, []);
+
+  const handleCameraMove = useCallback((pos: [number, number, number], rotY: number) => {
+    setCameraPos(pos);
+    setCameraRotY(rotY);
+  }, []);
+
   // -------------------------------------------------------------
   // E-Ink Hardware 4-Phase Refresh Wave
   // -------------------------------------------------------------
@@ -409,18 +419,12 @@ export const App: React.FC = () => {
               activeAisleIndex={activeAisleIndex}
               selectedTag={selectedTag}
               onSelectTag={handleSelectTag}
-              onHoverTag={(tag, pos) => {
-                setHoveredTag(tag);
-                setHoverScreenPos(pos || null);
-              }}
+              onHoverTag={handleHoverTag}
               locatingTagId={locatingTagId}
               refreshingTagId={refreshingTagId}
               refreshPhase={refreshPhase}
               guidedTourIndex={guidedTourIndex}
-              onCameraMove={(pos, rotY) => {
-                setCameraPos(pos);
-                setCameraRotY(rotY);
-              }}
+              onCameraMove={handleCameraMove}
             />
           ) : (
             <TwoDShelfView
