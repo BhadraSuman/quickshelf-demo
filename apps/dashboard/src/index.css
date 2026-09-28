@@ -55,3 +55,20 @@ body {
 .anim-diverged-pulse {
   animation: pulseGlow 2s infinite ease-in-out;
 }
+
+@keyframes ledBlink {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.8), 0 0 35px rgba(56, 189, 248, 0.5);
+    border-color: #38bdf8 !important;
+    transform: scale(1.02);
+  }
+  50% {
+    box-shadow: 0 0 5px rgba(56, 189, 248, 0.2);
+    border-color: #0284c7 !important;
+    transform: scale(1.0);
+  }
+}
+
+.anim-blinking-tag {
+  animation: ledBlink 0.5s infinite ease-in-out !important;
+}

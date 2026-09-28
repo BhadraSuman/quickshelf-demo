@@ -218,6 +218,21 @@ export default function App() {
   const [showEditSkuModal, setShowEditSkuModal] = useState<SkuItem | null>(null);
   const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [showAddStoreModal, setShowAddStoreModal] = useState(false);
+  const [showAddGatewayModal, setShowAddGatewayModal] = useState(false);
+
+  // Quick Price Update on Label
+  const [quickPriceTag, setQuickPriceTag] = useState<TagItem | null>(null);
+  const [quickPriceRupees, setQuickPriceRupees] = useState<string>('');
+  const [quickMrpRupees, setQuickMrpRupees] = useState<string>('');
+  const [quickPromoBadge, setQuickPromoBadge] = useState<string>('');
+
+  // Add Gateway Form State
+  const [newGatewayHwId, setNewGatewayHwId] = useState('');
+  const [newGatewayStoreId, setNewGatewayStoreId] = useState('store-blr-koramangala');
+  const [newGatewayRate, setNewGatewayRate] = useState(50);
+
+  // LED Locate Animation Tracking
+  const [blinkingTagIds, setBlinkingTagIds] = useState<Set<string>>(new Set());
 
   // Inspector Edit Form State
   const [inspectorSkuId, setInspectorSkuId] = useState<string>('');
@@ -468,6 +483,125 @@ export default function App() {
     }
   };
 
+  const handleLocateTag = async (tagHardwareId: string, gatewayHwId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      showToast(`📍 Blinking LED on Tag ${tagHardwareId} (10s pulse) via AP ${gatewayHwId}...`);
+      setBlinkingTagIds((prev) => new Set(prev).add(tagHardwareId));
+      await fetch(`${API_BASE}/api/tags/${tagHardwareId}/locate`, { method: 'POST' });
+      setTimeout(() => {
+        setBlinkingTagIds((prev) => {
+          const next = new Set(prev);
+          next.delete(tagHardwareId);
+          return next;
+        });
+      }, 10000);
+    } catch {
+      showToast(`⚠️ Tag ${tagHardwareId} locate command queued.`);
+    }
+  };
+
+  const handleOpenQuickPriceModal = (tag: TagItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setQuickPriceTag(tag);
+    setQuickPriceRupees(tag.sku ? (tag.sku.priceMinor / 100).toFixed(2) : '');
+    setQuickMrpRupees(tag.sku ? (tag.sku.mrpMinor / 100).toFixed(2) : '');
+    setQuickPromoBadge(tag.sku?.promoBadge || '');
+  };
+
+  const handleSaveQuickPrice = async () => {
+    if (!quickPriceTag) return;
+    const price = parseFloat(quickPriceRupees);
+    const mrp = parseFloat(quickMrpRupees);
+
+    if (isNaN(price) || price < 0) {
+      showToast('⚠️ Please enter a valid price.');
+      return;
+    }
+
+    if (!isNaN(mrp) && price > mrp) {
+      showToast(`❌ Guardrail Violation (PRC-04): Selling price (₹${price.toFixed(2)}) cannot exceed MRP (₹${mrp.toFixed(2)}).`);
+      return;
+    }
+
+    const priceMinor = Math.round(price * 100);
+    const mrpMinor = !isNaN(mrp) ? Math.round(mrp * 100) : undefined;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/tags/${quickPriceTag.id}/quick-price`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          priceMinor,
+          mrpMinor,
+          promoBadge: quickPromoBadge.trim() ? quickPromoBadge.trim() : null,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(`❌ ${data.error || 'Failed to update price'}`);
+        return;
+      }
+
+      showToast(`⚡ Price for ${quickPriceTag.hardwareId} updated to ₹${price.toFixed(2)}! Dispatched to AP.`);
+      setQuickPriceTag(null);
+      fetchData();
+    } catch {
+      showToast('❌ Failed to update price.');
+    }
+  };
+
+  const handleAddGateway = async () => {
+    if (!newGatewayHwId.trim()) {
+      showToast('⚠️ Please enter an Access Point Hardware ID (e.g. gw-blr-02).');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/gateways`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hardwareId: newGatewayHwId.trim(),
+          storeId: newGatewayStoreId,
+          maxTagsPerSec: newGatewayRate,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        showToast(`❌ ${data.error || 'Failed to add gateway'}`);
+        return;
+      }
+
+      showToast(`✅ Access Point ${newGatewayHwId.trim()} provisioned & online!`);
+      setShowAddGatewayModal(false);
+      setNewGatewayHwId('');
+      fetchData();
+    } catch {
+      showToast('❌ Failed to provision gateway.');
+    }
+  };
+
+  const handleUpdateGatewayRate = async (gatewayId: string, maxTagsPerSec: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/gateways/${gatewayId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ maxTagsPerSec }),
+      });
+      if (res.ok) {
+        showToast(`⚡ AP rate limit updated to ${maxTagsPerSec} tags/sec.`);
+        setGateways((prev) =>
+          prev.map((g) => (g.id === gatewayId ? { ...g, maxTagsPerSec } : g))
+        );
+      }
+    } catch {
+      showToast('❌ Failed to update AP rate limit.');
+    }
+  };
+
   // Theme-aware color palette
   const isDark = theme === 'dark';
   const c = {
@@ -582,11 +716,11 @@ export default function App() {
           {/* Navigation Links */}
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {[
-              { id: 'fleet', label: 'Fleet Health & Command', icon: Activity, badge: fleet && fleet.divergedTags > 0 ? `${fleet.divergedTags}` : null, badgeColor: c.warning },
-              { id: 'onboarding', label: 'Store Lifecycle & BOM', icon: Building2, badge: 'SOW §5' },
-              { id: 'pricing', label: 'Pricing & Live Publish', icon: DollarSign, badge: 'Guardrails' },
-              { id: 'gateways', label: 'Gateways & Hardware', icon: Radio, badge: `${gateways.length} APs` },
-              { id: 'audit', label: 'Audit & Compliance', icon: FileText, badge: 'CERT-In' },
+              { id: 'fleet', label: 'Labels & Live Updates', icon: Activity, badge: fleet && fleet.divergedTags > 0 ? `${fleet.divergedTags} Out of Sync` : 'All Synced', badgeColor: fleet && fleet.divergedTags > 0 ? c.warning : c.success },
+              { id: 'gateways', label: 'Access Points (APs)', icon: Radio, badge: `${gateways.length} Online`, badgeColor: c.primaryHover },
+              { id: 'pricing', label: 'Dynamic Pricing & SKUs', icon: DollarSign, badge: 'Guardrails' },
+              { id: 'audit', label: 'Audit & Diagnostics', icon: FileText, badge: '7 Problems' },
+              { id: 'onboarding', label: 'Store Onboarding', icon: Building2, badge: 'Coming Soon', badgeColor: '#eab308' },
             ].map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -1117,7 +1251,7 @@ export default function App() {
                       <div
                         key={tag.id}
                         onClick={() => setInspectTagId(tag.id)}
-                        className={tag.isDiverged ? 'anim-diverged-pulse' : ''}
+                        className={`${tag.isDiverged ? 'anim-diverged-pulse' : ''} ${blinkingTagIds.has(tag.hardwareId) ? 'anim-blinking-tag' : ''}`}
                         style={{
                           backgroundColor: '#fdfbf7', // Authentic e-paper reflection
                           color: '#111827',
@@ -1203,6 +1337,60 @@ export default function App() {
                               </span>
                             )}
                           </div>
+
+                          {/* Quick Operational Actions Bar */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '6px',
+                              marginTop: '8px',
+                              borderTop: '1px dashed #cbd5e1',
+                              paddingTop: '6px',
+                            }}
+                          >
+                            <button
+                              onClick={(e) => handleOpenQuickPriceModal(tag, e)}
+                              style={{
+                                flex: 1,
+                                backgroundColor: '#0284c7',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '4px',
+                                padding: '5px 6px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '3px',
+                              }}
+                            >
+                              ⚡ Update Price
+                            </button>
+                            <button
+                              onClick={(e) => handleLocateTag(tag.hardwareId, tag.gatewayHardwareId, e)}
+                              style={{
+                                flex: 1,
+                                backgroundColor: blinkingTagIds.has(tag.hardwareId) ? '#f59e0b' : '#f1f5f9',
+                                color: blinkingTagIds.has(tag.hardwareId) ? '#ffffff' : '#0f172a',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '4px',
+                                padding: '5px 6px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '3px',
+                              }}
+                            >
+                              {blinkingTagIds.has(tag.hardwareId) ? '✨ Blinking...' : '📍 Locate (10s)'}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -1272,12 +1460,26 @@ export default function App() {
                             )}
                           </td>
                           <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setInspectTagId(tag.id); }}
-                              style={{ backgroundColor: c.surfaceSubtle, color: c.primaryHover, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
-                            >
-                              Inspect
-                            </button>
+                            <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
+                              <button
+                                onClick={(e) => handleOpenQuickPriceModal(tag, e)}
+                                style={{ backgroundColor: c.surfaceSubtle, color: c.primaryHover, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                              >
+                                ⚡ Price
+                              </button>
+                              <button
+                                onClick={(e) => handleLocateTag(tag.hardwareId, tag.gatewayHardwareId, e)}
+                                style={{ backgroundColor: blinkingTagIds.has(tag.hardwareId) ? '#fef3c7' : c.surfaceSubtle, color: blinkingTagIds.has(tag.hardwareId) ? '#b45309' : c.text, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                              >
+                                {blinkingTagIds.has(tag.hardwareId) ? '✨ Blinking' : '📍 Locate'}
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setInspectTagId(tag.id); }}
+                                style={{ backgroundColor: c.surfaceSubtle, color: c.textMuted, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                              >
+                                Inspect
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1419,11 +1621,31 @@ export default function App() {
           ========================================================================== */}
           {activeTab === 'gateways' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: c.text }}>Ceiling Gateways & Hardware Registry</h2>
-                <p style={{ margin: '2px 0 0', color: c.textMuted, fontSize: '13px' }}>
-                  Full lifecycle state machine, transmission rate limit tuning, and drift inventory reconciliation.
-                </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: c.text }}>Access Points (APs) & Radio Hardware</h2>
+                  <p style={{ margin: '2px 0 0', color: c.textMuted, fontSize: '13px' }}>
+                    Real-time gateway connectivity, transmission rate limit tuning, and WebSocket synchronization.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowAddGatewayModal(true)}
+                  style={{
+                    backgroundColor: c.primary,
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Plus size={14} /> Provision New Access Point
+                </button>
               </div>
 
               {/* Hardware State Machine Visualization (SOW §6) */}
@@ -1452,10 +1674,10 @@ export default function App() {
                   <thead>
                     <tr style={{ backgroundColor: c.surfaceSubtle, color: c.textMuted, borderBottom: `1px solid ${c.border}` }}>
                       <th style={{ padding: '10px 12px' }}>AP HARDWARE ID</th>
-                      <th style={{ padding: '10px 12px' }}>STORE</th>
+                      <th style={{ padding: '10px 12px' }}>STORE & RADIO CHANNEL</th>
                       <th style={{ padding: '10px 12px' }}>STATUS</th>
                       <th style={{ padding: '10px 12px' }}>FIRMWARE</th>
-                      <th style={{ padding: '10px 12px' }}>CONNECTED TAGS</th>
+                      <th style={{ padding: '10px 12px' }}>CONNECTED LABELS</th>
                       <th style={{ padding: '10px 12px' }}>RATE LIMIT (TAGS/S)</th>
                       <th style={{ padding: '10px 12px', textAlign: 'right' }}>OPERATIONS</th>
                     </tr>
@@ -1463,24 +1685,50 @@ export default function App() {
                   <tbody>
                     {gateways.map((gw) => (
                       <tr key={gw.id} style={{ borderBottom: `1px solid ${c.border}` }}>
-                        <td style={{ padding: '10px 12px', fontWeight: 700, fontFamily: 'monospace', color: c.text }}>{gw.hardwareId}</td>
-                        <td style={{ padding: '10px 12px', color: c.textMuted }}>{gw.store.name}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 700, fontFamily: 'monospace', color: c.text }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Radio size={14} color={c.primaryHover} />
+                            <span>{gw.hardwareId}</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 12px', color: c.textMuted }}>
+                          <div>{gw.store.name}</div>
+                          <span style={{ fontSize: '10px', fontFamily: 'monospace', color: c.accentViolet }}>Sub-1 GHz Ch 4 (868.1 MHz)</span>
+                        </td>
                         <td style={{ padding: '10px 12px' }}>
                           <span style={{ backgroundColor: gw.status === 'ONLINE' ? 'rgba(5,150,105,0.15)' : 'rgba(186,26,26,0.15)', color: gw.status === 'ONLINE' ? c.success : c.error, padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 800 }}>
-                            {gw.status}
+                            ● {gw.status}
                           </span>
                         </td>
                         <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: c.textMuted }}>{gw.firmware}</td>
-                        <td style={{ padding: '10px 12px', fontWeight: 700, color: c.text }}>{gw.tagCount} labels</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 700, color: c.text }}>
+                          <span>{gw.tagCount} tags</span>
+                          {gw.divergedCount > 0 && (
+                            <span style={{ fontSize: '10px', color: c.warning, marginLeft: '6px' }}>({gw.divergedCount} pending)</span>
+                          )}
+                        </td>
                         <td style={{ padding: '10px 12px' }}>
-                          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: c.text }}>{gw.maxTagsPerSec} tags/sec</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input
+                              type="range"
+                              min={10}
+                              max={100}
+                              step={5}
+                              value={gw.maxTagsPerSec}
+                              onChange={(e) => handleUpdateGatewayRate(gw.id, parseInt(e.target.value))}
+                              style={{ width: '90px', cursor: 'pointer' }}
+                            />
+                            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: c.text, fontSize: '11px', minWidth: '60px' }}>
+                              {gw.maxTagsPerSec} tags/s
+                            </span>
+                          </div>
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'right' }}>
                           <button
                             onClick={() => handleForceGatewaySync(gw.id, gw.hardwareId)}
-                            style={{ backgroundColor: c.surfaceSubtle, color: c.primaryHover, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '4px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                            style={{ backgroundColor: c.surfaceSubtle, color: c.primaryHover, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '5px 12px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
                           >
-                            Force Sync Request
+                            Force Sync Audit
                           </button>
                         </td>
                       </tr>
@@ -2014,6 +2262,313 @@ export default function App() {
                 Provision Tag
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Price Update Modal for a Label */}
+      {quickPriceTag && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setQuickPriceTag(null)}
+        >
+          <div
+            style={{
+              backgroundColor: c.surface,
+              border: `1px solid ${c.border}`,
+              borderRadius: '12px',
+              padding: '22px',
+              width: '100%',
+              maxWidth: '460px',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: `1px solid ${c.border}`, paddingBottom: '10px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: c.text }}>
+                  ⚡ Quick Price Update
+                </h3>
+                <span style={{ fontSize: '11px', color: c.textMuted, fontFamily: 'monospace' }}>
+                  Label {quickPriceTag.hardwareId} • AP: {quickPriceTag.gatewayHardwareId}
+                </span>
+              </div>
+              <button onClick={() => setQuickPriceTag(null)} style={{ background: 'transparent', border: 'none', color: c.textMuted, cursor: 'pointer', fontSize: '20px', fontWeight: 800 }}>
+                &times;
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '12px' }}>
+              <div style={{ backgroundColor: c.surfaceSubtle, padding: '10px 12px', borderRadius: '8px', border: `1px solid ${c.border}` }}>
+                <span style={{ fontSize: '11px', color: c.textMuted }}>Bound Product:</span>
+                <div style={{ fontWeight: 700, fontSize: '14px', color: c.text, marginTop: '2px' }}>
+                  {quickPriceTag.sku ? quickPriceTag.sku.name : 'Unpaired Label'}
+                </div>
+                <div style={{ fontSize: '11px', color: c.textMuted, fontFamily: 'monospace' }}>
+                  SKU: {quickPriceTag.sku ? quickPriceTag.sku.code : 'N/A'}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ display: 'block', color: c.textMuted, fontWeight: 700, marginBottom: '4px' }}>
+                    New Selling Price (₹):
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={quickPriceRupees}
+                    onChange={(e) => setQuickPriceRupees(e.target.value)}
+                    placeholder="e.g. 175.00"
+                    style={{
+                      width: '100%',
+                      backgroundColor: c.surfaceSubtle,
+                      border: `1.5px solid ${c.primaryHover}`,
+                      color: c.text,
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      fontSize: '15px',
+                      fontWeight: 800,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', color: c.textMuted, fontWeight: 700, marginBottom: '4px' }}>
+                    MRP Guardrail (₹):
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={quickMrpRupees}
+                    onChange={(e) => setQuickMrpRupees(e.target.value)}
+                    placeholder="e.g. 195.00"
+                    style={{
+                      width: '100%',
+                      backgroundColor: c.surfaceSubtle,
+                      border: `1px solid ${c.border}`,
+                      color: c.text,
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      fontSize: '15px',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', color: c.textMuted, fontWeight: 600, marginBottom: '4px' }}>
+                  Promo Display Badge (Optional):
+                </label>
+                <input
+                  type="text"
+                  value={quickPromoBadge}
+                  onChange={(e) => setQuickPromoBadge(e.target.value)}
+                  placeholder="e.g. Special Offer / Save ₹20"
+                  style={{
+                    width: '100%',
+                    backgroundColor: c.surfaceSubtle,
+                    border: `1px solid ${c.border}`,
+                    color: c.text,
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                <button
+                  onClick={() => setQuickPriceTag(null)}
+                  style={{
+                    flex: 1,
+                    backgroundColor: c.surfaceSubtle,
+                    color: c.text,
+                    border: `1px solid ${c.border}`,
+                    borderRadius: '6px',
+                    padding: '10px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveQuickPrice}
+                  style={{
+                    flex: 2,
+                    backgroundColor: c.primary,
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '10px',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Dispatch Price to Radio ➔
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Access Point Modal */}
+      {showAddGatewayModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setShowAddGatewayModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: c.surface,
+              border: `1px solid ${c.border}`,
+              borderRadius: '12px',
+              padding: '22px',
+              width: '100%',
+              maxWidth: '440px',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: `1px solid ${c.border}`, paddingBottom: '10px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: c.text }}>
+                  📡 Provision Access Point (AP)
+                </h3>
+                <span style={{ fontSize: '11px', color: c.textMuted }}>
+                  Registers hardware ID with WebSocket gateway tunnel
+                </span>
+              </div>
+              <button onClick={() => setShowAddGatewayModal(false)} style={{ background: 'transparent', border: 'none', color: c.textMuted, cursor: 'pointer', fontSize: '20px', fontWeight: 800 }}>
+                &times;
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}>
+              <div>
+                <label style={{ display: 'block', color: c.textMuted, fontWeight: 700, marginBottom: '4px' }}>
+                  Hardware / MAC ID:
+                </label>
+                <input
+                  type="text"
+                  value={newGatewayHwId}
+                  onChange={(e) => setNewGatewayHwId(e.target.value)}
+                  placeholder="e.g. gw-blr-02 or 00:1A:2B:3C:4D:5E"
+                  style={{
+                    width: '100%',
+                    backgroundColor: c.surfaceSubtle,
+                    border: `1px solid ${c.border}`,
+                    color: c.text,
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', color: c.textMuted, fontWeight: 700, marginBottom: '4px' }}>
+                  Store Assignment:
+                </label>
+                <select
+                  value={newGatewayStoreId}
+                  onChange={(e) => setNewGatewayStoreId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    backgroundColor: c.surfaceSubtle,
+                    border: `1px solid ${c.border}`,
+                    color: c.text,
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                  }}
+                >
+                  {stores.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.city})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <label style={{ color: c.textMuted, fontWeight: 700 }}>
+                    Transmission Speed Rate Limit:
+                  </label>
+                  <span style={{ fontWeight: 800, color: c.primaryHover, fontFamily: 'monospace' }}>
+                    {newGatewayRate} tags/sec
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={10}
+                  max={100}
+                  step={5}
+                  value={newGatewayRate}
+                  onChange={(e) => setNewGatewayRate(parseInt(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '10px', color: c.textMuted }}>SOW baseline: 50 tags/sec per AP</span>
+              </div>
+
+              <div style={{ backgroundColor: c.surfaceSubtle, padding: '10px', borderRadius: '6px', border: `1px solid ${c.border}`, fontSize: '11px', color: c.textMuted }}>
+                Frequency Band: <strong>Sub-1 GHz ISM (865 - 868 MHz India)</strong>. Does not interfere with store 2.4 GHz customer Wi-Fi.
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                <button
+                  onClick={() => setShowAddGatewayModal(false)}
+                  style={{
+                    flex: 1,
+                    backgroundColor: c.surfaceSubtle,
+                    color: c.text,
+                    border: `1px solid ${c.border}`,
+                    borderRadius: '6px',
+                    padding: '10px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddGateway}
+                  style={{
+                    flex: 2,
+                    backgroundColor: c.primary,
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '10px',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Save & Provision AP ➔
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

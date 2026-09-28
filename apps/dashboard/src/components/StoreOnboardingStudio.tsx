@@ -294,6 +294,34 @@ export function StoreOnboardingStudio({ theme, apiBase }: StoreOnboardingStudioP
         </div>
       </div>
 
+      {/* Coming Soon Notice Banner (Founder Roadmap) */}
+      <div
+        style={{
+          backgroundColor: isDark ? 'rgba(234, 179, 8, 0.12)' : '#FEF9C3',
+          border: '1.5px solid #EAB308',
+          borderRadius: '10px',
+          padding: '14px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '14px',
+          boxShadow: '0 2px 6px rgba(234, 179, 8, 0.15)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '24px' }}>🚧</span>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: isDark ? '#FDE047' : '#854D0E', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>Module Status: Coming Soon</span>
+              <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', backgroundColor: '#EAB308', color: '#000', fontWeight: 800 }}>ENTERPRISE CAD FEATURE</span>
+            </div>
+            <div style={{ fontSize: '12px', color: isDark ? '#FEF08A' : '#713F12', marginTop: '3px' }}>
+              As we are currently building core functionality and do not have customer rollouts yet, our immediate development is focused on <strong>Access Point (AP) radio management</strong>, <strong>instant label price updates</strong>, and <strong>core store operations</strong>. Architectural blueprint uploads and multi-contractor partner dispatching are marked as Coming Soon.
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* 9-Stage Stepper Bar */}
       <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>

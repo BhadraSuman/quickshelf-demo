@@ -252,6 +252,41 @@ export async function registerRoutes(app: FastifyInstance) {
     });
   });
 
+  // Provision new Gateway (Access Point)
+  app.post('/api/gateways', async (request, reply) => {
+    const schema = z.object({
+      hardwareId: z.string().min(1),
+      storeId: z.string().min(1),
+      firmware: z.string().default('v1.2.4'),
+      maxTagsPerSec: z.number().int().positive().default(50),
+    });
+
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ success: false, error: parsed.error.issues });
+    }
+
+    const { hardwareId, storeId, firmware, maxTagsPerSec } = parsed.data;
+
+    const existing = await db.gateway.findUnique({ where: { hardwareId } });
+    if (existing) {
+      return reply.status(409).send({ success: false, error: `Gateway with hardware ID '${hardwareId}' already exists.` });
+    }
+
+    const created = await db.gateway.create({
+      data: {
+        hardwareId,
+        storeId,
+        firmware,
+        maxTagsPerSec,
+        status: GatewayStatus.ONLINE,
+        lastSeenAt: new Date(),
+      },
+    });
+
+    return reply.status(201).send({ success: true, gateway: created });
+  });
+
   // ==========================================
   // Tags (Digital Shelf Labels) Management
   // ==========================================
@@ -505,6 +540,112 @@ export async function registerRoutes(app: FastifyInstance) {
     });
 
     return reply.status(201).send({ success: true, tag: created });
+  });
+
+  // Trigger physical LED flash on label for 10 seconds (Locate Label / Pick-to-Light)
+  app.post('/api/tags/:id/locate', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const tag = await db.tag.findFirst({
+      where: { OR: [{ id }, { hardwareId: id }] },
+      include: { gateway: true },
+    });
+
+    if (!tag) {
+      return reply.status(404).send({ success: false, error: `Tag ${id} not found` });
+    }
+
+    // Publish locate frame to gateway bus
+    await publishGatewayCommand(tag.gateway.hardwareId, {
+      type: 'locate',
+      tagHardwareId: tag.hardwareId,
+      durationSeconds: 10,
+    } as any);
+
+    return reply.status(200).send({
+      success: true,
+      message: `Triggered 10-second LED flash sequence for tag ${tag.hardwareId}`,
+      tagHardwareId: tag.hardwareId,
+      gatewayHardwareId: tag.gateway.hardwareId,
+    });
+  });
+
+  // Direct Quick Price Update from Label (Tag) View
+  app.post('/api/tags/:id/quick-price', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const schema = z.object({
+      priceMinor: z.number().int().nonnegative(),
+      mrpMinor: z.number().int().nonnegative().optional(),
+      promoBadge: z.string().nullable().optional(),
+    });
+
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ success: false, error: parsed.error.issues });
+    }
+
+    const tag = await db.tag.findFirst({
+      where: { OR: [{ id }, { hardwareId: id }] },
+      include: { sku: true, gateway: true },
+    });
+
+    if (!tag || !tag.sku) {
+      return reply.status(404).send({ success: false, error: `Tag ${id} is not bound to any SKU.` });
+    }
+
+    const mrpMinor = parsed.data.mrpMinor ?? tag.sku.mrpMinor;
+    if (parsed.data.priceMinor > mrpMinor) {
+      return reply.status(400).send({
+        success: false,
+        error: `Commercial Guardrail Violation (PRC-04): Selling price (₹${(parsed.data.priceMinor / 100).toFixed(2)}) cannot exceed MRP (₹${(mrpMinor / 100).toFixed(2)}).`,
+      });
+    }
+
+    // Update SKU and tag desired payload
+    const nextVersion = tag.sku.version + 1;
+    const updatedSku = await db.sku.update({
+      where: { id: tag.sku.id },
+      data: {
+        priceMinor: parsed.data.priceMinor,
+        mrpMinor,
+        promoBadge: parsed.data.promoBadge !== undefined ? parsed.data.promoBadge : tag.sku.promoBadge,
+        version: nextVersion,
+      },
+    });
+
+    await db.priceEvent.create({
+      data: {
+        skuId: tag.sku.id,
+        oldPriceMinor: tag.sku.priceMinor,
+        newPriceMinor: parsed.data.priceMinor,
+        source: 'manual',
+      },
+    });
+
+    const renderPayload: TagRenderPayload = {
+      skuCode: updatedSku.code,
+      name: updatedSku.name,
+      priceMinor: updatedSku.priceMinor,
+      mrpMinor: updatedSku.mrpMinor,
+      promoBadge: updatedSku.promoBadge,
+      size: tag.size as any,
+    };
+    const desiredHash = computePayloadHash(renderPayload);
+
+    const updatedTag = await db.tag.update({
+      where: { id: tag.id },
+      data: {
+        desiredVersion: nextVersion,
+        desiredHash,
+        desiredPayload: renderPayload as any,
+      },
+      include: { sku: true, gateway: true },
+    });
+
+    return reply.status(200).send({
+      success: true,
+      message: `Updated price for tag ${tag.hardwareId} to ₹${(parsed.data.priceMinor / 100).toFixed(2)}. Label marked diverged for RF dispatch.`,
+      tag: updatedTag,
+    });
   });
 
   // ==========================================
