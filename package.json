@@ -16,6 +16,7 @@
     "api": "pnpm --filter @quickshelf/api dev",
     "dashboard": "pnpm --filter @quickshelf/dashboard dev",
     "sim": "pnpm --filter esl-sim start",
+    "demo": "pnpm --filter @quickshelf/live-demo dev",
     "test:chaos": "tsx tools/chaos-bench.ts",
     "services": "concurrently --kill-others -n \"API,HUB,ENGINE\" -c \"blue.bold,magenta.bold,cyan.bold\" \"pnpm api\" \"pnpm hub\" \"pnpm engine\"",
     "start": "concurrently --kill-others -n \"API,HUB,ENGINE,SIM,UI\" -c \"blue.bold,magenta.bold,cyan.bold,yellow.bold,green.bold\" \"pnpm api\" \"pnpm hub\" \"pnpm engine\" \"pnpm sim\" \"pnpm dashboard\"",

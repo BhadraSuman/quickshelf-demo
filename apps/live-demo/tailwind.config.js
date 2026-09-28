@@ -1,0 +1,47 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        primary: "#006153",
+        "primary-hover": "#0B6356",
+        "primary-container": "#0e7c6b",
+        "on-primary": "#ffffff",
+        "on-primary-container": "#bdffee",
+        secondary: "#55615f",
+        "secondary-container": "#d8e5e3",
+        "on-secondary-container": "#5b6765",
+        tertiary: "#ac1020",
+        "tertiary-container": "#cf2f35",
+        "on-tertiary": "#ffffff",
+        "surface-canvas": "#FAFAF7",
+        "surface-card": "#FFFFFF",
+        "surface-container": "#ebeef5",
+        "surface-container-high": "#e5e8ef",
+        "surface-container-low": "#f1f4fa",
+        "border-subtle": "#E8E6DF",
+        "text-muted": "#656F7D",
+        "on-surface": "#181c21",
+        "on-surface-variant": "#3e4946",
+        "hardware-bezel": "#23272D",
+        "hardware-clip": "#353A42",
+        "epaper-bg": "#F2F0EA",
+        "epaper-ink-black": "#111111",
+        "epaper-ink-red": "#C4262E",
+      },
+      fontFamily: {
+        sans: ["Manrope", "sans-serif"],
+        manrope: ["Manrope", "sans-serif"],
+        barlow: ["'Barlow Condensed'", "sans-serif"],
+        devanagari: ["'Noto Sans Devanagari'", "sans-serif"],
+        mono: ["'Space Mono'", "monospace"],
+      },
+    },
+  },
+  plugins: [],
+}
