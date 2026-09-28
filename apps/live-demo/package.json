@@ -16,6 +16,7 @@
     "three": "^0.173.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.13.5",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.0.8",

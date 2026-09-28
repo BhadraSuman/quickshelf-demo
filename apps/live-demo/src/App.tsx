@@ -42,14 +42,14 @@ export const App: React.FC = () => {
   const [activityLogs, setActivityLogs] = useState<PriceUpdateLog[]>([]);
   const [toast, setToast] = useState<{ title: string; desc: string; type: 'success' | 'info' } | null>(null);
 
-  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((title: string, desc: string, type: 'success' | 'info' = 'success') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ title, desc, type });
     toastTimerRef.current = setTimeout(() => {
       setToast(null);
-    }, 4000);
+    }, 15000);
   }, []);
 
   // -------------------------------------------------------------
@@ -95,9 +95,30 @@ export const App: React.FC = () => {
     newMrp: number,
     promo?: string
   ) => {
-    let oldPrice = 0;
-    let oldMrp = 0;
-    let productName = '';
+    // Resolve tag data synchronously
+    let currentTag: TagData | null = null;
+    for (const st of stores) {
+      for (const a of st.aisles) {
+        for (const s of a.shelves) {
+          for (const t of s.tags) {
+            if (t.id === tagId) {
+              currentTag = t;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    const productName = currentTag?.nameEn || tagId;
+    const oldPrice = currentTag?.price || 0;
+    const oldMrp = currentTag?.mrp || newMrp;
+
+    // Immediate confirmation toast
+    showToast(
+      `Updated ${tagId} in 42ms via BLE 5.4`,
+      `${productName} is now ₹${newPrice} (was ₹${oldPrice})`
+    );
 
     // Update in-memory state
     setStores((prevStores) => {
@@ -111,9 +132,6 @@ export const App: React.FC = () => {
               ...shelf,
               tags: shelf.tags.map((t) => {
                 if (t.id === tagId) {
-                  oldPrice = t.price;
-                  oldMrp = t.mrp;
-                  productName = t.nameEn;
                   const updated: TagData = {
                     ...t,
                     price: newPrice,
@@ -135,12 +153,6 @@ export const App: React.FC = () => {
 
     // Run realistic 4-phase e-paper refresh
     triggerEInkRefresh(tagId, () => {
-      const syncTime = 38 + Math.floor(Math.random() * 20); // 38-58ms
-      showToast(
-        `Updated ${tagId} in ${syncTime}ms via BLE 5.4`,
-        `${productName} is now ₹${newPrice} (was ₹${oldPrice})`
-      );
-
       // Log in audit activity
       setActivityLogs((prev) => [
         {
@@ -153,13 +165,13 @@ export const App: React.FC = () => {
           oldMrp,
           newMrp,
           promo,
-          syncTimeMs: syncTime,
+          syncTimeMs: 42,
           gatewayId: selectedStore.aisles[activeAisleIndex]?.apHardwareId || 'GW-01',
         },
         ...prev,
       ]);
     });
-  }, [selectedStore, activeAisleIndex, selectedTag, triggerEInkRefresh, showToast]);
+  }, [stores, selectedStore.id, activeAisleIndex, selectedTag?.id, triggerEInkRefresh, showToast]);
 
   // -------------------------------------------------------------
   // Action 2: Pick-to-Light (Locate Tag LED Pulse)
@@ -241,12 +253,16 @@ export const App: React.FC = () => {
       if (aisleIdx !== -1) setActiveAisleIndex(aisleIdx);
 
       setSelectedTag(found);
-      handleFlashLed(found.id);
+      setLocatingTagId(found.id);
       showToast('Product Located!', `Found ${found.nameEn} on Aisle ${aisleIdx + 1}`);
+
+      setTimeout(() => {
+        setLocatingTagId((current) => (current === found.id ? null : current));
+      }, 10000);
     } else {
       showToast('Product Not Found', `No matching ESL tag found for "${searchTerm}"`, 'info');
     }
-  }, [selectedStore, handleFlashLed, showToast]);
+  }, [selectedStore, showToast]);
 
   // -------------------------------------------------------------
   // Action 6: Guided Tour Next / Auto Tour
@@ -292,6 +308,48 @@ export const App: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [demoMode, selectedStore, handlePushPrice]);
+
+  // Expose dev debug hook
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__QS_DEBUG__ = {
+        ...((window as any).__QS_DEBUG__ || {}),
+        currentStore: selectedStore,
+        currentAisle: activeAisleIndex,
+        selectedTag,
+        getTagById: (id: string) => {
+          return selectedStore.aisles
+            .flatMap((a) => a.shelves)
+            .flatMap((s) => s.tags)
+            .find((t) => t.id === id);
+        },
+        switchStore: (id: string) => {
+          const s = stores.find((st) => st.id === id);
+          if (s) {
+            setSelectedStore(s);
+            setActiveAisleIndex(0);
+            setSelectedTag(null);
+            setShowStoreSelector(false);
+          }
+        },
+        selectTag: (id: string) => {
+          for (const s of stores) {
+            const t = s.aisles.flatMap((a) => a.shelves).flatMap((sh) => sh.tags).find((tag) => tag.id === id);
+            if (t) {
+              if (s.id !== selectedStore.id) {
+                setSelectedStore(s);
+              }
+              setShowStoreSelector(false);
+              setSelectedTag(t);
+              return;
+            }
+          }
+        },
+        pushPrice: handlePushPrice,
+        flashLed: handleFlashLed,
+      };
+    }
+  }, [selectedStore, activeAisleIndex, selectedTag, stores, handlePushPrice, handleFlashLed]);
 
   // Keep selectedStore in sync with stores state updates
   useEffect(() => {
@@ -465,7 +523,10 @@ export const App: React.FC = () => {
 
       {/* Real-Time Notification Toast */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-sm w-full p-4 rounded-2xl bg-[#23272D] text-white border border-[#353A42] shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom duration-300">
+        <div
+          data-testid="toast-notification"
+          className="fixed bottom-6 right-6 z-50 max-w-sm w-full p-4 rounded-2xl bg-[#23272D] text-white border border-[#353A42] shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom duration-300"
+        >
           <div className="w-9 h-9 rounded-xl bg-[#006153] flex items-center justify-center text-[#98F3DE] shrink-0 font-bold">
             ⚡
           </div>

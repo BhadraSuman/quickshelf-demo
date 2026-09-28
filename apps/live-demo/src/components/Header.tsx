@@ -43,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-4 shrink-0">
         <button
           onClick={onOpenStoreSelector}
+          data-testid="header-logo-btn"
           className="flex items-center gap-2.5 hover:opacity-90 transition-opacity text-left focus:outline-none"
           title="Return to Store Selector"
         >
@@ -67,6 +68,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative">
           <select
             value={selectedStore.id}
+            data-testid="header-store-select"
             onChange={(e) => {
               const s = stores.find((st) => st.id === e.target.value);
               if (s) onSelectStore(s);
@@ -88,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Center: Search Find (Pick-to-Light) */}
       <form
         onSubmit={handleSearchSubmit}
-        className="hidden md:flex items-center relative max-w-xs w-full"
+        className="flex items-center relative max-w-xs w-full"
       >
         <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-[#656F7D]">
           search
@@ -96,6 +98,7 @@ export const Header: React.FC<HeaderProps> = ({
         <input
           type="text"
           value={searchTerm}
+          data-testid="search-input"
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder="Find product / LED blink..."
           className="w-full bg-[#FAFAF7] border border-[#E8E6DF] text-xs rounded-lg pl-9 pr-3 py-1.5 text-[#181C21] placeholder-[#656F7D] focus:outline-none focus:border-[#006153] focus:bg-[#FFFFFF]"
@@ -103,6 +106,7 @@ export const Header: React.FC<HeaderProps> = ({
         {searchTerm && (
           <button
             type="submit"
+            data-testid="search-submit-btn"
             className="absolute right-2 text-[10px] bg-[#006153] text-white px-2 py-0.5 rounded font-bold uppercase"
           >
             Find
@@ -119,9 +123,21 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-[10px] text-[#006153] font-bold">ACK 42ms</span>
         </div>
 
+        {/* Join the Beta CTA */}
+        <a
+          href="https://www.quickshelf.in/beta"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="join-beta-link"
+          className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-lg bg-[#006153] hover:bg-[#0B6356] text-white text-xs font-bold transition-all shadow-sm active:scale-95"
+        >
+          Join the Beta ➔
+        </a>
+
         {/* Guided Tour Button */}
         <button
           onClick={onStartGuidedTour}
+          data-testid="start-tour-btn"
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
             isTourActive
               ? 'bg-[#AC1020] text-white animate-pulse'
@@ -138,6 +154,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Demo Mode Toggle */}
         <button
           onClick={onToggleDemoMode}
+          data-testid="toggle-demomode-btn"
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
             demoMode
               ? 'bg-[#006153] text-white shadow-sm'
@@ -152,6 +169,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* 2D / 3D Toggle */}
         <button
           onClick={onToggleViewMode}
+          data-testid="toggle-viewmode-btn"
           className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#0E7C6B] hover:bg-[#0B6356] text-white text-xs font-bold transition-all shadow-sm active:scale-95"
           title="Switch between 3D store walkthrough and 2D shelf rail"
         >

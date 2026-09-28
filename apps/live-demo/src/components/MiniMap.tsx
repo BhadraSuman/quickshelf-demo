@@ -81,6 +81,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
         <div className="flex items-center justify-between gap-1 pt-1 border-t border-[#E8E6DF]">
           <button
             onClick={handlePrevAisle}
+            data-testid="minimap-prev-aisle"
             className="px-2 py-0.5 rounded-md bg-[#FAFAF7] hover:bg-[#E5E8EF] border border-[#CBD5E1] text-[10px] font-bold text-[#181C21] transition-colors"
           >
             ◀ Prev Aisle
@@ -90,6 +91,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
           </span>
           <button
             onClick={handleNextAisle}
+            data-testid="minimap-next-aisle"
             className="px-2 py-0.5 rounded-md bg-[#FAFAF7] hover:bg-[#E5E8EF] border border-[#CBD5E1] text-[10px] font-bold text-[#181C21] transition-colors"
           >
             Next Aisle ▶

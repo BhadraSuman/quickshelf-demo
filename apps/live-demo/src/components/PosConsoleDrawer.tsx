@@ -27,14 +27,14 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
   isRefreshing,
   refreshPhase,
 }) => {
-  const [priceInput, setPriceInput] = useState<number>(0);
-  const [mrpInput, setMrpInput] = useState<number>(0);
-  const [promoInput, setPromoInput] = useState<string>('');
-  const [stockInput, setStockInput] = useState<number>(0);
+  const [priceInput, setPriceInput] = useState<number>(tag ? tag.price : 0);
+  const [mrpInput, setMrpInput] = useState<number>(tag ? tag.mrp : 0);
+  const [promoInput, setPromoInput] = useState<string>(tag ? tag.promo || '' : '');
+  const [stockInput, setStockInput] = useState<number>(tag ? tag.stock : 0);
 
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Sync inputs with selected tag
+  // Sync inputs when selected tag changes
   useEffect(() => {
     if (tag) {
       setPriceInput(tag.price);
@@ -79,12 +79,25 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
     }
   };
 
+  const isPriceInvalid = priceInput <= 0 || priceInput > mrpInput || mrpInput <= 0 || priceInput > 999999;
+  const priceErrorMsg = priceInput <= 0
+    ? 'Selling price must be greater than ₹0'
+    : priceInput > mrpInput
+    ? `PRC-04 Violation: Selling price (₹${priceInput}) cannot exceed MRP (₹${mrpInput})`
+    : priceInput > 999999
+    ? 'Price exceeds retail limit (₹9,99,999)'
+    : null;
+
   const handlePush = () => {
+    if (isPriceInvalid) return;
     onPushPrice(tag.id, priceInput, mrpInput, promoInput);
   };
 
   return (
-    <aside className="fixed top-16 right-0 w-full sm:w-[420px] h-[calc(100vh-64px)] z-40 bg-[#FFFFFF] border-l border-[#E8E6DF] shadow-[-8px_0_24px_-4px_rgba(31,35,40,0.12)] flex flex-col justify-between overflow-hidden animate-in slide-in-from-right duration-300">
+    <aside
+      data-testid="pos-drawer"
+      className="fixed top-16 right-0 w-full sm:w-[420px] h-[calc(100vh-64px)] z-40 bg-[#FFFFFF] border-l border-[#E8E6DF] shadow-[-8px_0_24px_-4px_rgba(31,35,40,0.12)] flex flex-col justify-between overflow-hidden animate-in slide-in-from-right duration-300"
+    >
       {/* Drawer Header */}
       <div className="p-4 border-b border-[#E8E6DF] flex items-center justify-between bg-[#FAFAF7]">
         <div>
@@ -98,6 +111,7 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
         </div>
         <button
           onClick={onClose}
+          data-testid="pos-close-btn"
           className="w-8 h-8 rounded-lg hover:bg-[#E5E8EF] flex items-center justify-center text-[#656F7D] hover:text-[#181C21] transition-colors"
         >
           <span className="material-symbols-outlined text-[20px]">close</span>
@@ -154,13 +168,14 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
               <label className="text-[11px] font-semibold text-[#656F7D] block mb-1">
                 Selling Price (₹)
               </label>
-              <div className="flex items-center bg-white border border-[#CBD5E1] rounded-lg px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-[#006153]">
-                <span className="font-bold text-[#181C21] mr-1">₹</span>
+              <div className={`flex items-center bg-white border ${isPriceInvalid ? 'border-[#C4262E] ring-2 ring-[#C4262E]/20' : 'border-[#CBD5E1] focus-within:ring-2 focus-within:ring-[#006153]'} rounded-lg px-2.5 py-1.5`}>
+                <span className={`font-bold ${isPriceInvalid ? 'text-[#C4262E]' : 'text-[#181C21]'} mr-1`}>₹</span>
                 <input
                   type="number"
+                  data-testid="pos-price-input"
                   value={priceInput}
                   onChange={(e) => setPriceInput(parseInt(e.target.value) || 0)}
-                  className="w-full font-bold text-sm text-[#181C21] bg-transparent focus:outline-none"
+                  className={`w-full font-bold text-sm ${isPriceInvalid ? 'text-[#C4262E]' : 'text-[#181C21]'} bg-transparent focus:outline-none`}
                 />
               </div>
             </div>
@@ -174,6 +189,7 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
                 <span className="font-bold text-[#656F7D] mr-1">₹</span>
                 <input
                   type="number"
+                  data-testid="pos-mrp-input"
                   value={mrpInput}
                   onChange={(e) => setMrpInput(parseInt(e.target.value) || 0)}
                   className="w-full font-bold text-sm text-[#656F7D] bg-transparent focus:outline-none"
@@ -182,11 +198,19 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
             </div>
           </div>
 
+          {/* Validation Warning Alert */}
+          {priceErrorMsg && (
+            <div data-testid="pos-validation-error" className="p-2 rounded-lg bg-[#FDF2F2] border border-[#FCA5A5] text-[11px] font-bold text-[#C4262E] flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[14px]">error</span>
+              <span>{priceErrorMsg}</span>
+            </div>
+          )}
+
           {/* Discount Pill */}
           <div className="flex items-center justify-between text-xs">
             <span className="text-[#656F7D]">Calculated Discount:</span>
             <span className={`font-bold font-mono ${discountPercent > 0 ? 'text-[#C4262E]' : 'text-[#656F7D]'}`}>
-              {discountPercent > 0 ? `${discountPercent}% OFF (Savings: ₹${mrpInput - priceInput})` : 'At Standard MRP'}
+              {discountPercent > 0 ? `${discountPercent}% OFF (Savings: ₹${(mrpInput - priceInput).toLocaleString('en-IN')})` : 'At Standard MRP'}
             </span>
           </div>
 
@@ -197,6 +221,7 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
             </label>
             <input
               type="text"
+              data-testid="pos-promo-input"
               value={promoInput}
               onChange={(e) => setPromoInput(e.target.value)}
               placeholder="e.g. SAVE ₹50, 20% OFF, BOGO"
@@ -244,6 +269,7 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => onBulkDiscountAisle(10)}
+              data-testid="pos-bulk-discount-btn"
               className="px-3 py-2 rounded-xl bg-[#F1F4FA] hover:bg-[#E5E8EF] border border-[#CBD5E1] text-xs font-semibold text-[#181C21] transition-all flex items-center justify-center gap-1.5"
             >
               <span className="material-symbols-outlined text-[16px] text-[#006153]">percent</span>
@@ -252,6 +278,7 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
 
             <button
               onClick={() => onFlashLed(tag.id)}
+              data-testid="pos-flash-led-btn"
               className="px-3 py-2 rounded-xl bg-[#ECFDF5] hover:bg-[#D1FAE5] border border-[#6EE7B7] text-xs font-bold text-[#047857] transition-all flex items-center justify-center gap-1.5"
             >
               <span className="material-symbols-outlined text-[16px] text-[#10B981] animate-pulse">lightbulb</span>
@@ -263,6 +290,7 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
           {isSweetsStore && (
             <button
               onClick={onRunEveningMarkdown}
+              data-testid="pos-evening-markdown-btn"
               className="w-full mt-1 px-3 py-2 rounded-xl bg-[#FFFBEB] hover:bg-[#FEF3C7] border border-[#FCD34D] text-xs font-bold text-[#B45309] transition-all flex items-center justify-center gap-2 shadow-sm"
             >
               <span className="material-symbols-outlined text-[16px]">nightlight</span>
@@ -317,8 +345,9 @@ export const PosConsoleDrawer: React.FC<PosConsoleDrawerProps> = ({
         </button>
         <button
           onClick={handlePush}
-          disabled={isRefreshing}
-          className="flex-2 py-2.5 px-5 rounded-xl bg-[#006153] hover:bg-[#0B6356] text-white text-xs font-bold transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+          data-testid="pos-push-btn"
+          disabled={isRefreshing || isPriceInvalid}
+          className="flex-2 py-2.5 px-5 rounded-xl bg-[#006153] hover:bg-[#0B6356] text-white text-xs font-bold transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <span className="material-symbols-outlined text-[16px]">bolt</span>
           <span>{isRefreshing ? 'Dispatching...' : 'Push Price to Tag ➔'}</span>

@@ -34,6 +34,24 @@ export const EPAPER_COLORS = {
 };
 
 /**
+ * Recalculates unit price dynamically when product price is updated
+ */
+export function computeEffectiveUnitPrice(
+  originalUnitPrice: string,
+  originalPrice: number,
+  currentPrice: number
+): string {
+  if (!originalUnitPrice) return '';
+  const match = originalUnitPrice.match(/^₹?\s*([\d,.]+)\s*\/\s*(.+)$/);
+  if (!match) return originalUnitPrice;
+  const originalUnitRate = parseFloat(match[1].replace(/,/g, ''));
+  if (isNaN(originalUnitRate) || originalPrice <= 0) return originalUnitPrice;
+  const currentUnitRate = (originalUnitRate / originalPrice) * currentPrice;
+  const formattedRate = Math.round(currentUnitRate).toLocaleString('en-IN');
+  return `₹${formattedRate} / ${match[2].trim()}`;
+}
+
+/**
  * Draws an authentic 3-color e-ink tag directly onto an HTML5 canvas.
  * Can be called during normal rendering or during 4-phase e-ink refresh.
  */
@@ -85,6 +103,7 @@ export async function renderTagToCanvas(
   // -----------------------------------------------------------
   const effectivePrice = customPrice !== undefined ? customPrice : tag.price;
   const effectivePromo = customPromo !== undefined ? customPromo : tag.promo;
+  const effectiveUnitPrice = computeEffectiveUnitPrice(tag.unitPrice, tag.price, effectivePrice);
   const isDiscounted = tag.mrp > effectivePrice;
 
   // 1. Paper Substrate
@@ -135,13 +154,13 @@ export async function renderTagToCanvas(
     // Large Price
     ctx.fillStyle = isDiscounted ? EPAPER_COLORS.red : EPAPER_COLORS.black;
     ctx.font = 'bold 34px "Barlow Condensed", sans-serif';
-    ctx.fillText(`₹${effectivePrice}`, 10, contentStartY + 38);
+    ctx.fillText(`₹${effectivePrice.toLocaleString('en-IN')}`, 10, contentStartY + 38);
 
     // MRP struck-through
     if (isDiscounted) {
       ctx.fillStyle = EPAPER_COLORS.black;
       ctx.font = '11px "Manrope", sans-serif';
-      const mrpText = `MRP: ₹${tag.mrp}`;
+      const mrpText = `MRP: ₹${tag.mrp.toLocaleString('en-IN')}`;
       ctx.fillText(mrpText, 10, contentStartY + 74);
       const mrpWidth = ctx.measureText(mrpText).width;
       ctx.beginPath();
@@ -160,7 +179,7 @@ export async function renderTagToCanvas(
     } else {
       ctx.fillStyle = EPAPER_COLORS.black;
       ctx.font = '10px "Space Mono", monospace';
-      ctx.fillText(tag.unitPrice, 10, contentStartY + 92);
+      ctx.fillText(effectiveUnitPrice, 10, contentStartY + 92);
     }
 
     // Stock alert
@@ -189,15 +208,15 @@ export async function renderTagToCanvas(
     const priceY = contentStartY + 42;
     ctx.fillStyle = isDiscounted ? EPAPER_COLORS.red : EPAPER_COLORS.black;
     ctx.font = 'bold 44px "Barlow Condensed", sans-serif';
-    ctx.fillText(`₹${effectivePrice}`, 12, priceY);
+    ctx.fillText(`₹${effectivePrice.toLocaleString('en-IN')}`, 12, priceY);
 
-    const priceWidth = ctx.measureText(`₹${effectivePrice}`).width;
+    const priceWidth = ctx.measureText(`₹${effectivePrice.toLocaleString('en-IN')}`).width;
 
     // MRP & Unit Price next to price
     if (isDiscounted) {
       ctx.fillStyle = EPAPER_COLORS.black;
       ctx.font = '600 12px "Manrope", sans-serif';
-      const mrpText = `MRP ₹${tag.mrp}`;
+      const mrpText = `MRP ₹${tag.mrp.toLocaleString('en-IN')}`;
       ctx.fillText(mrpText, 18 + priceWidth, priceY + 6);
       const mrpWidth = ctx.measureText(mrpText).width;
       ctx.beginPath();
@@ -208,11 +227,11 @@ export async function renderTagToCanvas(
       ctx.stroke();
 
       ctx.font = '500 11px "Space Mono", monospace';
-      ctx.fillText(tag.unitPrice, 18 + priceWidth, priceY + 24);
+      ctx.fillText(effectiveUnitPrice, 18 + priceWidth, priceY + 24);
     } else {
       ctx.fillStyle = EPAPER_COLORS.black;
       ctx.font = '500 11px "Space Mono", monospace';
-      ctx.fillText(tag.unitPrice, 18 + priceWidth, priceY + 14);
+      ctx.fillText(effectiveUnitPrice, 18 + priceWidth, priceY + 14);
     }
 
     // Apparel size or batch pill
@@ -262,14 +281,14 @@ export async function renderTagToCanvas(
     const priceY = contentStartY + 80;
     ctx.fillStyle = isDiscounted ? EPAPER_COLORS.red : EPAPER_COLORS.black;
     ctx.font = 'bold 64px "Barlow Condensed", sans-serif';
-    ctx.fillText(`₹${effectivePrice}`, 16, priceY);
+    ctx.fillText(`₹${effectivePrice.toLocaleString('en-IN')}`, 16, priceY);
 
-    const priceWidth = ctx.measureText(`₹${effectivePrice}`).width;
+    const priceWidth = ctx.measureText(`₹${effectivePrice.toLocaleString('en-IN')}`).width;
 
     if (isDiscounted) {
       ctx.fillStyle = EPAPER_COLORS.black;
       ctx.font = '700 16px "Manrope", sans-serif';
-      const mrpText = `MRP: ₹${tag.mrp}`;
+      const mrpText = `MRP: ₹${tag.mrp.toLocaleString('en-IN')}`;
       ctx.fillText(mrpText, 24 + priceWidth, priceY + 12);
       const mrpWidth = ctx.measureText(mrpText).width;
       ctx.beginPath();
@@ -280,11 +299,11 @@ export async function renderTagToCanvas(
       ctx.stroke();
 
       ctx.font = '500 14px "Space Mono", monospace';
-      ctx.fillText(tag.unitPrice, 24 + priceWidth, priceY + 36);
+      ctx.fillText(effectiveUnitPrice, 24 + priceWidth, priceY + 36);
     } else {
       ctx.fillStyle = EPAPER_COLORS.black;
       ctx.font = '500 14px "Space Mono", monospace';
-      ctx.fillText(tag.unitPrice, 24 + priceWidth, priceY + 24);
+      ctx.fillText(effectiveUnitPrice, 24 + priceWidth, priceY + 24);
     }
 
     // QR Code

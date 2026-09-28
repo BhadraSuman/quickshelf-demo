@@ -1074,7 +1074,7 @@ export const STORES_DATA: StoreData[] = [
     defaultLookAt: [0, 1.2, 0],
     tourStops: [
       {
-        tagId: 'QS-4.20-401001',
+        tagId: 'QS-4.2-401001',
         cameraPos: [-1.0, 1.4, 2.5],
         lookAt: [-1.4, 1.2, 1.8],
         narrative: 'Step 1: Silver leaf Kaju Katli. Wide 4.2" display showing Made Today 06:00 AM and 8 PM Markdown capability.',
@@ -1096,7 +1096,7 @@ export const STORES_DATA: StoreData[] = [
             name: 'Glass Counter 1 - Premium Cashew & Pistachio',
             tags: [
               {
-                id: 'QS-4.20-401001',
+                id: 'QS-4.2-401001',
                 size: '4.2',
                 sku: 'SKU-PNQ-SWT-01',
                 nameEn: 'Special Kaju Katli (Pure Vark) 1kg',

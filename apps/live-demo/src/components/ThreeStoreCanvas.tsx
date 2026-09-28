@@ -27,6 +27,22 @@ interface TagMeshRef {
   ledMaterial: THREE.MeshStandardMaterial;
 }
 
+const checkGondolaCollision = (testPos: THREE.Vector3, aisles: StoreData['aisles']): boolean => {
+  for (let aIdx = 0; aIdx < aisles.length; aIdx++) {
+    const aisleZ = (aIdx - aisles.length / 2) * 4.5;
+    const minZ = aisleZ - 2.4;
+    const maxZ = aisleZ + 2.4;
+
+    if (testPos.z >= minZ && testPos.z <= maxZ) {
+      // Check left gondola row: [-2.35, -1.25]
+      if (testPos.x >= -2.35 && testPos.x <= -1.25) return true;
+      // Check right gondola row: [1.25, 2.35]
+      if (testPos.x >= 1.25 && testPos.x <= 2.35) return true;
+    }
+  }
+  return false;
+};
+
 export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
   store,
   activeAisleIndex,
@@ -51,7 +67,14 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
   const cameraPosRef = useRef<THREE.Vector3>(new THREE.Vector3(...store.defaultCameraPos));
   const cameraTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(...store.defaultLookAt));
   const isGlidingRef = useRef<boolean>(false);
-  const glideStartRef = useRef<{ pos: THREE.Vector3; target: THREE.Vector3; startTime: number; duration: number } | null>(null);
+  const glideStartRef = useRef<{
+    startPos: THREE.Vector3;
+    destPos: THREE.Vector3;
+    startTarget: THREE.Vector3;
+    destTarget: THREE.Vector3;
+    startTime: number;
+    duration: number;
+  } | null>(null);
 
   // Mouse drag look
   const isDraggingRef = useRef<boolean>(false);
@@ -70,8 +93,10 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
   // -----------------------------------------------------------------
   const glideTo = useCallback((destPos: THREE.Vector3, destTarget: THREE.Vector3, durationMs: number = 800) => {
     glideStartRef.current = {
-      pos: cameraPosRef.current.clone(),
-      target: cameraTargetRef.current.clone(),
+      startPos: cameraPosRef.current.clone(),
+      destPos: destPos.clone(),
+      startTarget: cameraTargetRef.current.clone(),
+      destTarget: destTarget.clone(),
       startTime: performance.now(),
       duration: durationMs,
     };
@@ -93,14 +118,20 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
   // -----------------------------------------------------------------
   // Teleport to active aisle when changed via UI
   // -----------------------------------------------------------------
+  const prevAisleRef = useRef<number>(activeAisleIndex);
   useEffect(() => {
     if (guidedTourIndex !== null) return;
+    if (prevAisleRef.current === activeAisleIndex) return;
+    prevAisleRef.current = activeAisleIndex;
+
+    if (locatingTagId) return;
+
     const aisle = store.aisles[activeAisleIndex];
     if (aisle) {
       const aisleZ = (activeAisleIndex - store.aisles.length / 2) * 4.5;
       glideTo(new THREE.Vector3(0, 1.6, aisleZ + 3.2), new THREE.Vector3(0, 1.4, aisleZ), 900);
     }
-  }, [activeAisleIndex, store, guidedTourIndex, glideTo]);
+  }, [activeAisleIndex, store, guidedTourIndex, locatingTagId, glideTo]);
 
   // -----------------------------------------------------------------
   // Redraw tag texture on price refresh
@@ -116,12 +147,11 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
   }, [refreshingTagId, refreshPhase]);
 
   // -----------------------------------------------------------------
-  // LED Pick-to-Light Blink Controller
+  // Pick-to-Light Cross-Aisle Camera Glide & LED Blink Controller
   // -----------------------------------------------------------------
   useEffect(() => {
     tagMeshesRef.current.forEach((tagRef, id) => {
       if (id === locatingTagId) {
-        // High visibility bright neon green emissive bloom
         tagRef.ledMaterial.emissive.setHex(0x10b981);
         tagRef.ledMaterial.emissiveIntensity = 4.0;
       } else {
@@ -129,7 +159,21 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
         tagRef.ledMaterial.emissiveIntensity = 0.0;
       }
     });
-  }, [locatingTagId]);
+
+    if (locatingTagId) {
+      const tagRef = tagMeshesRef.current.get(locatingTagId);
+      if (tagRef) {
+        const tagWorldPos = new THREE.Vector3();
+        tagRef.mesh.getWorldPosition(tagWorldPos);
+        const viewPos = new THREE.Vector3(
+          tagWorldPos.x + 0.72,
+          Math.max(1.35, tagWorldPos.y + 0.05),
+          tagWorldPos.z
+        );
+        glideTo(viewPos, tagWorldPos, 900);
+      }
+    }
+  }, [locatingTagId, glideTo]);
 
   // -----------------------------------------------------------------
   // Initialize Three.js Scene
@@ -248,86 +292,161 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
       roughness: 0.5,
     });
 
-    // Product materials palette (Atta, Rice, Dal, Ghee, Spices, Boxes)
-    const productMats = [
-      new THREE.MeshStandardMaterial({ color: 0x9a3412, roughness: 0.6 }), // Atta orange/brown
-      new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.5 }), // Basmati blue
-      new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.5 }), // Toor Dal yellow/gold
-      new THREE.MeshStandardMaterial({ color: 0x047857, roughness: 0.5 }), // Moong Dal green
-      new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.5 }), // Spices red
-      new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.3 }), // Oil/Ghee golden
-    ];
+    // -------------------------------------------------------------
+    // Instanced Shelving & Product Meshes (High Performance < 50 Draw Calls)
+    // -------------------------------------------------------------
+    const numAisles = store.aisles.length;
+    const numRows = numAisles * 2;
+    const numTiers = 4;
+    const tiers = [0.45, 1.05, 1.65, 2.25];
+    const pPositions = [-1.8, -1.35, -0.9, -0.45, 0, 0.45, 0.9, 1.35, 1.8];
 
-    // Iterate through store aisles
+    const totalUprights = numRows * 2;
+    const totalBackPanels = numRows;
+    const totalShelves = numRows * numTiers;
+    const totalRails = numRows * numTiers;
+
+    const isSupermarket = store.type === 'supermarket';
+    const totalBottles = isSupermarket ? numRows * pPositions.length : 0;
+    const totalBoxes = isSupermarket
+      ? numRows * (numTiers - 1) * pPositions.length
+      : numRows * numTiers * pPositions.length;
+
+    // Instanced geometries
+    const uprightGeo = new THREE.BoxGeometry(0.08, 2.8, 0.08);
+    const backPanelGeo = new THREE.BoxGeometry(0.04, 2.7, 4.4);
+    const shelfGeo = new THREE.BoxGeometry(0.65, 0.04, 4.3);
+    const railGeo = new THREE.BoxGeometry(0.03, 0.08, 4.3);
+    const boxGeo = new THREE.BoxGeometry(0.3, 0.4, 0.35);
+    const bottleGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.45, 12);
+
+    const uprightMesh = new THREE.InstancedMesh(uprightGeo, shelfMetalMat, totalUprights);
+    uprightMesh.castShadow = true;
+    uprightMesh.receiveShadow = true;
+
+    const backPanelMesh = new THREE.InstancedMesh(backPanelGeo, shelfMetalMat, totalBackPanels);
+    backPanelMesh.receiveShadow = true;
+
+    const shelfMesh = new THREE.InstancedMesh(shelfGeo, shelfMetalMat, totalShelves);
+    shelfMesh.castShadow = true;
+    shelfMesh.receiveShadow = true;
+
+    const railMesh = new THREE.InstancedMesh(railGeo, railMat, totalRails);
+
+    const boxPalette = [
+      new THREE.Color(0x9a3412), // Atta
+      new THREE.Color(0x1e3a8a), // Basmati
+      new THREE.Color(0xd97706), // Toor Dal
+      new THREE.Color(0x047857), // Moong Dal
+      new THREE.Color(0xb91c1c), // Spices
+      new THREE.Color(0xf59e0b), // Golden Ghee
+    ];
+    const boxMat = new THREE.MeshStandardMaterial({ roughness: 0.5 });
+    const boxMesh = new THREE.InstancedMesh(boxGeo, boxMat, totalBoxes);
+    boxMesh.castShadow = true;
+    boxMesh.receiveShadow = true;
+
+    let bottleMesh: THREE.InstancedMesh | null = null;
+    if (totalBottles > 0) {
+      const bottleMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.3 });
+      bottleMesh = new THREE.InstancedMesh(bottleGeo, bottleMat, totalBottles);
+      bottleMesh.castShadow = true;
+      bottleMesh.receiveShadow = true;
+    }
+
+    const dummy = new THREE.Object3D();
+    let uprightIdx = 0;
+    let backPanelIdx = 0;
+    let shelfIdx = 0;
+    let railIdx = 0;
+    let boxIdx = 0;
+    let bottleIdx = 0;
+
     store.aisles.forEach((aisle, aIdx) => {
       const aisleZ = (aIdx - store.aisles.length / 2) * 4.5;
-
-      // Two facing gondola rows per aisle: Left row (X = -2.0) and Right row (X = 2.0)
       const rows = [
-        { side: 'left', x: -1.8, rotY: Math.PI / 2 },
-        { side: 'right', x: 1.8, rotY: -Math.PI / 2 },
+        { side: 'left', x: -1.8 },
+        { side: 'right', x: 1.8 },
       ];
 
       rows.forEach((row) => {
-        // Vertical upright posts
-        const uprightGeo = new THREE.BoxGeometry(0.08, 2.8, 0.08);
-        const postLeft = new THREE.Mesh(uprightGeo, shelfMetalMat);
-        postLeft.position.set(row.x, 1.4, aisleZ - 2.2);
-        postLeft.castShadow = true;
-        scene.add(postLeft);
+        // Upright post left
+        dummy.position.set(row.x, 1.4, aisleZ - 2.2);
+        dummy.scale.set(1, 1, 1);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        uprightMesh.setMatrixAt(uprightIdx++, dummy.matrix);
 
-        const postRight = new THREE.Mesh(uprightGeo, shelfMetalMat);
-        postRight.position.set(row.x, 1.4, aisleZ + 2.2);
-        postRight.castShadow = true;
-        scene.add(postRight);
+        // Upright post right
+        dummy.position.set(row.x, 1.4, aisleZ + 2.2);
+        dummy.updateMatrix();
+        uprightMesh.setMatrixAt(uprightIdx++, dummy.matrix);
 
         // Back panel
-        const backPanelGeo = new THREE.BoxGeometry(0.04, 2.7, 4.4);
-        const backPanel = new THREE.Mesh(backPanelGeo, shelfMetalMat);
-        backPanel.position.set(row.x + (row.side === 'left' ? -0.3 : 0.3), 1.4, aisleZ);
-        backPanel.receiveShadow = true;
-        scene.add(backPanel);
+        dummy.position.set(row.x + (row.side === 'left' ? -0.3 : 0.3), 1.4, aisleZ);
+        dummy.updateMatrix();
+        backPanelMesh.setMatrixAt(backPanelIdx++, dummy.matrix);
 
-        // 4 Horizontal shelf tiers
-        const tiers = [0.45, 1.05, 1.65, 2.25];
+        // 4 tiers
         tiers.forEach((tierY, tIdx) => {
-          // Metal shelf board
-          const shelfGeo = new THREE.BoxGeometry(0.65, 0.04, 4.3);
-          const shelf = new THREE.Mesh(shelfGeo, shelfMetalMat);
-          shelf.position.set(row.x, tierY, aisleZ);
-          shelf.receiveShadow = true;
-          shelf.castShadow = true;
-          scene.add(shelf);
+          // Shelf board
+          dummy.position.set(row.x, tierY, aisleZ);
+          dummy.scale.set(1, 1, 1);
+          dummy.rotation.set(0, 0, 0);
+          dummy.updateMatrix();
+          shelfMesh.setMatrixAt(shelfIdx++, dummy.matrix);
 
-          // Dark plastic ESL mounting rail along front edge
+          // Dark mounting rail
           const railOffset = row.side === 'left' ? 0.33 : -0.33;
-          const railGeo = new THREE.BoxGeometry(0.03, 0.08, 4.3);
-          const rail = new THREE.Mesh(railGeo, railMat);
-          rail.position.set(row.x + railOffset, tierY - 0.01, aisleZ);
-          scene.add(rail);
+          dummy.position.set(row.x + railOffset, tierY - 0.01, aisleZ);
+          dummy.updateMatrix();
+          railMesh.setMatrixAt(railIdx++, dummy.matrix);
 
-          // Populate realistic product 3D boxes/jars on shelf
-          for (let p = -1.8; p <= 1.8; p += 0.45) {
-            const isBottle = tIdx === 0 && store.type === 'supermarket';
-            let prodMesh: THREE.Mesh;
-
-            if (isBottle) {
-              const bottleGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.45, 12);
-              prodMesh = new THREE.Mesh(bottleGeo, productMats[5]);
-              prodMesh.position.set(row.x + (row.side === 'left' ? 0.1 : -0.1), tierY + 0.25, aisleZ + p);
+          // Products
+          pPositions.forEach((p) => {
+            const isBottle = tIdx === 0 && isSupermarket;
+            if (isBottle && bottleMesh) {
+              dummy.position.set(row.x + (row.side === 'left' ? 0.1 : -0.1), tierY + 0.225, aisleZ + p);
+              dummy.scale.set(1, 1, 1);
+              dummy.rotation.set(0, 0, 0);
+              dummy.updateMatrix();
+              bottleMesh.setMatrixAt(bottleIdx++, dummy.matrix);
             } else {
-              const boxHeight = 0.38 + ((Math.abs(p * 10)) % 3) * 0.06;
-              const boxGeo = new THREE.BoxGeometry(0.3, boxHeight, 0.35);
-              const mat = productMats[Math.floor(Math.abs(p * 5 + tIdx)) % productMats.length];
-              prodMesh = new THREE.Mesh(boxGeo, mat);
-              prodMesh.position.set(row.x + (row.side === 'left' ? 0.05 : -0.05), tierY + boxHeight / 2 + 0.02, aisleZ + p);
+              const heightScale = 0.95 + ((Math.abs(p * 10)) % 3) * 0.15;
+              dummy.position.set(row.x + (row.side === 'left' ? 0.05 : -0.05), tierY + 0.2 * heightScale + 0.02, aisleZ + p);
+              dummy.scale.set(1, heightScale, 1);
+              dummy.rotation.set(0, 0, 0);
+              dummy.updateMatrix();
+              boxMesh.setMatrixAt(boxIdx, dummy.matrix);
+              const color = boxPalette[Math.floor(Math.abs(p * 5 + tIdx)) % boxPalette.length];
+              boxMesh.setColorAt(boxIdx, color);
+              boxIdx++;
             }
-            prodMesh.castShadow = true;
-            prodMesh.receiveShadow = true;
-            scene.add(prodMesh);
-          }
+          });
         });
       });
+    });
+
+    uprightMesh.instanceMatrix.needsUpdate = true;
+    backPanelMesh.instanceMatrix.needsUpdate = true;
+    shelfMesh.instanceMatrix.needsUpdate = true;
+    railMesh.instanceMatrix.needsUpdate = true;
+    boxMesh.instanceMatrix.needsUpdate = true;
+    if (boxMesh.instanceColor) boxMesh.instanceColor.needsUpdate = true;
+
+    scene.add(uprightMesh);
+    scene.add(backPanelMesh);
+    scene.add(shelfMesh);
+    scene.add(railMesh);
+    scene.add(boxMesh);
+    if (bottleMesh) {
+      bottleMesh.instanceMatrix.needsUpdate = true;
+      scene.add(bottleMesh);
+    }
+
+    // Mount physical ESL tags and hanging signs per aisle
+    store.aisles.forEach((aisle, aIdx) => {
+      const aisleZ = (aIdx - store.aisles.length / 2) * 4.5;
 
       // Mount physical ESL Tags along the shelves of this aisle
       aisle.shelves.forEach((shelf) => {
@@ -514,7 +633,9 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
         if (hit.object.name === 'store-floor') {
           const targetPoint = hit.point.clone();
           targetPoint.y = 1.6; // Keep at eye height
-          glideTo(targetPoint, targetPoint.clone().add(new THREE.Vector3(0, 0, -2)), 800);
+          if (!checkGondolaCollision(targetPoint, store.aisles)) {
+            glideTo(targetPoint, targetPoint.clone().add(new THREE.Vector3(0, 0, -2)), 800);
+          }
           return;
         }
       }
@@ -544,27 +665,34 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
 
       // 1. Handle Glide Interpolation
       if (isGlidingRef.current && glideStartRef.current) {
-        const elapsed = time - glideStartRef.current.startTime;
-        const progress = Math.min(1, elapsed / glideStartRef.current.duration);
+        const { startPos, destPos, startTarget, destTarget, startTime, duration } = glideStartRef.current;
+        const elapsed = time - startTime;
+        const progress = Math.min(1, elapsed / duration);
         // Smooth easeInOutCubic
         const t = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
 
-        cameraPosRef.current.lerpVectors(glideStartRef.current.pos, glideStartRef.current.pos, 0);
-        camera.position.lerpVectors(glideStartRef.current.pos, glideStartRef.current.pos, 0);
+        const currentPos = new THREE.Vector3().lerpVectors(startPos, destPos, t);
+        camera.position.copy(currentPos);
+        cameraPosRef.current.copy(currentPos);
 
-        camera.position.x = THREE.MathUtils.lerp(glideStartRef.current.pos.x, cameraPosRef.current.x, t);
-        camera.position.y = THREE.MathUtils.lerp(glideStartRef.current.pos.y, cameraPosRef.current.y, t);
-        camera.position.z = THREE.MathUtils.lerp(glideStartRef.current.pos.z, cameraPosRef.current.z, t);
+        const currentTarget = new THREE.Vector3().lerpVectors(startTarget, destTarget, t);
+        cameraTargetRef.current.copy(currentTarget);
+        camera.lookAt(currentTarget);
 
-        cameraTargetRef.current.lerpVectors(glideStartRef.current.target, cameraTargetRef.current, t);
-        camera.lookAt(cameraTargetRef.current);
+        const lookDir = currentTarget.clone().sub(currentPos).normalize();
+        cameraYawRef.current = Math.atan2(lookDir.x, -lookDir.z);
+        cameraPitchRef.current = Math.asin(Math.max(-0.99, Math.min(0.99, lookDir.y)));
+
+        if (onCameraMove) {
+          onCameraMove([currentPos.x, currentPos.y, currentPos.z], cameraYawRef.current);
+        }
 
         if (progress >= 1) {
           isGlidingRef.current = false;
           glideStartRef.current = null;
         }
       } else {
-        // 2. Keyboard Movement (WASD)
+        // 2. Keyboard Movement (WASD) with Gondola Shelf Collision
         const moveSpeed = 0.06;
         const forward = new THREE.Vector3(
           Math.sin(cameraYawRef.current),
@@ -585,15 +713,28 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
 
         if (moveDir.lengthSq() > 0) {
           moveDir.normalize().multiplyScalar(moveSpeed);
-          const newPos = camera.position.clone().add(moveDir);
+          const targetX = Math.max(-4.5, Math.min(4.5, camera.position.x + moveDir.x));
+          const targetZ = Math.max(-12, Math.min(12, camera.position.z + moveDir.z));
 
-          // Store boundaries & shelf collision clamping
-          newPos.x = Math.max(-4.5, Math.min(4.5, newPos.x));
-          newPos.z = Math.max(-12, Math.min(12, newPos.z));
-          newPos.y = 1.6; // Keep at eye height
+          // Collision detection against gondolas with smooth wall sliding
+          const bothPos = new THREE.Vector3(targetX, 1.6, targetZ);
+          if (!checkGondolaCollision(bothPos, store.aisles)) {
+            camera.position.x = targetX;
+            camera.position.z = targetZ;
+          } else {
+            const posXOnly = new THREE.Vector3(targetX, 1.6, camera.position.z);
+            if (!checkGondolaCollision(posXOnly, store.aisles)) {
+              camera.position.x = targetX;
+            } else {
+              const posZOnly = new THREE.Vector3(camera.position.x, 1.6, targetZ);
+              if (!checkGondolaCollision(posZOnly, store.aisles)) {
+                camera.position.z = targetZ;
+              }
+            }
+          }
 
-          camera.position.copy(newPos);
-          cameraPosRef.current.copy(newPos);
+          camera.position.y = 1.6;
+          cameraPosRef.current.copy(camera.position);
 
           const lookDir = new THREE.Vector3(
             Math.sin(cameraYawRef.current) * Math.cos(cameraPitchRef.current),
@@ -609,8 +750,43 @@ export const ThreeStoreCanvas: React.FC<ThreeStoreCanvasProps> = ({
         }
       }
 
+      // Pick-to-Light LED dynamic pulsing
+      if (locatingTagId) {
+        const tagRef = tagMeshesRef.current.get(locatingTagId);
+        if (tagRef) {
+          const pulse = (Math.sin(time * 0.008) + 1) * 2;
+          tagRef.ledMaterial.emissiveIntensity = 2.0 + pulse;
+        }
+      }
+
+      // FPS tracking
+      frameCount++;
+      const nowTime = performance.now();
+      if (nowTime - lastFpsTime >= 500) {
+        currentFps = Math.round((frameCount * 1000) / (nowTime - lastFpsTime));
+        frameCount = 0;
+        lastFpsTime = nowTime;
+      }
+
+      if (typeof window !== 'undefined') {
+        (window as any).__QS_DEBUG__ = {
+          ...((window as any).__QS_DEBUG__ || {}),
+          cameraPosition: [camera.position.x, camera.position.y, camera.position.z],
+          fps: currentFps,
+          rendererInfo: {
+            drawCalls: renderer.info.render.calls,
+            textures: renderer.info.memory.textures,
+            geometries: renderer.info.memory.geometries,
+          },
+        };
+      }
+
       renderer.render(scene, camera);
     };
+
+    let frameCount = 0;
+    let lastFpsTime = performance.now();
+    let currentFps = 60;
 
     animationFrameId = requestAnimationFrame(animate);
 

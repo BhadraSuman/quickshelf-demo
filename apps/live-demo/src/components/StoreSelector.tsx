@@ -81,6 +81,7 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({
               <span className="font-bold text-base text-[#181C21]">₹</span>
               <input
                 type="number"
+                data-testid="instant-sync-input"
                 value={demoPrice}
                 onChange={(e) => setDemoPrice(parseInt(e.target.value) || 0)}
                 className="w-16 bg-transparent font-bold text-base text-[#181C21] focus:outline-none"
@@ -88,6 +89,7 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({
             </div>
             <button
               onClick={handleInstantSync}
+              data-testid="instant-sync-btn"
               className="px-5 py-2.5 rounded-xl bg-[#006153] hover:bg-[#0B6356] text-white text-xs font-bold transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
             >
               <span className="material-symbols-outlined text-[16px]">bolt</span>
@@ -118,6 +120,7 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({
             {stores.map((store) => (
               <div
                 key={store.id}
+                data-testid={`store-card-${store.id}`}
                 onClick={() => onSelectStore(store)}
                 className="group flex flex-col bg-[#FFFFFF] rounded-2xl overflow-hidden border border-[#E8E6DF] shadow-[0_10px_30px_-5px_rgba(0,0,0,0.06)] hover:-translate-y-1.5 hover:shadow-xl transition-all duration-300 cursor-pointer"
               >
@@ -164,7 +167,10 @@ export const StoreSelector: React.FC<StoreSelectorProps> = ({
                       </span>
                     </div>
 
-                    <button className="w-full py-2.5 px-4 rounded-xl bg-[#006153] group-hover:bg-[#0B6356] text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-2 shadow-sm">
+                    <button
+                      data-testid={`enter-store-btn-${store.id}`}
+                      className="w-full py-2.5 px-4 rounded-xl bg-[#006153] group-hover:bg-[#0B6356] text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-2 shadow-sm"
+                    >
                       <span>Enter store</span>
                       <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
                     </button>

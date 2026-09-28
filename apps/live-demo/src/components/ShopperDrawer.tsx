@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { TagData } from '../types';
 
 interface ShopperDrawerProps {
@@ -8,10 +8,29 @@ interface ShopperDrawerProps {
 }
 
 export const ShopperDrawer: React.FC<ShopperDrawerProps> = ({ tag, onClose, onLocateTag }) => {
+  useEffect(() => {
+    if (!tag) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [tag, onClose]);
+
   if (!tag) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <div
+      data-testid="shopper-modal"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+    >
       {/* Smartphone Device Frame */}
       <div className="relative w-full max-w-[360px] h-[680px] bg-[#111111] rounded-[44px] p-3.5 shadow-2xl border-4 border-[#333333] flex flex-col justify-between overflow-hidden">
         {/* Phone Speaker & Dynamic Island */}
@@ -30,6 +49,7 @@ export const ShopperDrawer: React.FC<ShopperDrawerProps> = ({ tag, onClose, onLo
               </div>
               <button
                 onClick={onClose}
+                data-testid="shopper-close-btn"
                 className="w-7 h-7 rounded-full bg-[#F1F4FA] flex items-center justify-center text-xs text-[#656F7D]"
               >
                 ✕
@@ -63,9 +83,9 @@ export const ShopperDrawer: React.FC<ShopperDrawerProps> = ({ tag, onClose, onLo
               <div className="p-3 rounded-xl bg-[#FAFAF7] border border-[#E8E6DF] flex items-center justify-between">
                 <div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-extrabold text-[#181C21]">₹{tag.price}</span>
+                    <span className="text-2xl font-extrabold text-[#181C21]">₹{tag.price.toLocaleString('en-IN')}</span>
                     {tag.mrp > tag.price && (
-                      <span className="text-xs text-[#656F7D] line-through">MRP ₹{tag.mrp}</span>
+                      <span className="text-xs text-[#656F7D] line-through">MRP ₹{tag.mrp.toLocaleString('en-IN')}</span>
                     )}
                   </div>
                   <span className="text-[11px] text-[#656F7D] block">{tag.unitPrice}</span>
@@ -120,6 +140,7 @@ export const ShopperDrawer: React.FC<ShopperDrawerProps> = ({ tag, onClose, onLo
                 onLocateTag(tag.id);
                 onClose();
               }}
+              data-testid="shopper-locate-btn"
               className="w-full py-2.5 px-4 rounded-xl bg-[#006153] hover:bg-[#0B6356] text-white text-xs font-bold transition-all shadow flex items-center justify-center gap-1.5"
             >
               <span className="material-symbols-outlined text-[16px]">navigation</span>

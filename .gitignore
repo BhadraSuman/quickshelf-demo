@@ -1,4 +1,4 @@
-﻿# Dependencies
+# Dependencies
 node_modules/
 .pnpm-store/
 
@@ -7,6 +7,8 @@ dist/
 build/
 .turbo/
 out/
+test-results/
+playwright-report/
 
 # Environment files
 .env
