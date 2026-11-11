@@ -14,7 +14,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "tsx test/live.test.ts"
+    "test": "tsx test/signer.test.ts",
+    "test:live": "tsx test/live.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.13.5",
