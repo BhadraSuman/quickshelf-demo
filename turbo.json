@@ -1,5 +1,17 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "DATABASE_URL",
+    "NODE_ENV",
+    "PORT",
+    "API_PORT",
+    "JWT_SECRET",
+    "HIGHLIGHT_APP_KEY",
+    "HIGHLIGHT_APP_SECRET",
+    "HIGHLIGHT_ENDPOINT",
+    "HIGHLIGHT_ORG_CODE",
+    "VITE_API_BASE"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

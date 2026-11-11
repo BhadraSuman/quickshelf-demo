@@ -51,7 +51,7 @@ jobs:
       - name: Generate Prisma Client & Seed Test DB
         run: |
           pnpm --filter @quickshelf/db generate
-          pnpm --filter @quickshelf/db exec prisma db push
+          pnpm --filter @quickshelf/db exec prisma db push --accept-data-loss
           pnpm --filter @quickshelf/db run seed
         env:
           DATABASE_URL: "postgresql://qsadmin:password123@localhost:5432/quickshelf?sslmode=disable"
