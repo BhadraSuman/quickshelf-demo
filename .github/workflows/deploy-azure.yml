@@ -48,10 +48,11 @@ jobs:
       - name: Install Monorepo Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma Client & Push DB Schema
+      - name: Generate Prisma Client & Seed Test DB
         run: |
           pnpm --filter @quickshelf/db generate
           pnpm --filter @quickshelf/db exec prisma db push
+          pnpm --filter @quickshelf/db run seed
         env:
           DATABASE_URL: "postgresql://qsadmin:password123@localhost:5432/quickshelf?sslmode=disable"
 
