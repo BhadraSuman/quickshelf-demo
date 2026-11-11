@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { db } from '@quickshelf/db';
 import { computePayloadHash, type TagRenderPayload } from '@quickshelf/esl-protocol';
+import { HighlightFleetService } from './services/highlight.service.js';
 
 export const PosPriceUpdateSchema = z.object({
   storeId: z.string().min(1),
@@ -82,6 +83,18 @@ export async function processPosPriceUpdate(input: PosPriceUpdateInput) {
           desiredHash,
           desiredPayload: renderPayload as any,
         },
+      });
+
+      // 6. Asynchronously trigger physical Highlight OTA updates
+      HighlightFleetService.pushPriceUpdate({
+        tagHardwareId: tag.hardwareId,
+        skuCode: updatedSku.code,
+        prodName: updatedSku.name,
+        priceMinor: newPriceMinor,
+        mrpMinor: updatedMrp,
+        promoBadge: updatedPromo,
+      }).catch((err) => {
+        console.warn(`[HighlightOTA] Webhook dispatch skipped for ${tag.hardwareId}:`, err.message);
       });
     }
 

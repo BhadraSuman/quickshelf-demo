@@ -15,6 +15,11 @@ const envSchema = z.object({
   GATEWAY_HUB_PORT: z.coerce.number().default(8080),
   API_PORT: z.coerce.number().default(3000),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  // Highlight ESL Cloud Integration
+  HIGHLIGHT_APP_KEY: z.string().default('21186651'),
+  HIGHLIGHT_APP_SECRET: z.string().default('67c08468b185468ea5326fe26def69ef'),
+  HIGHLIGHT_ENDPOINT: z.string().default('http://www.electronicshelflabel.cn:8082/api/handle'),
+  HIGHLIGHT_ORG_CODE: z.string().default('CU006INDIA0344'),
 });
 
 export type Config = z.infer<typeof envSchema>;

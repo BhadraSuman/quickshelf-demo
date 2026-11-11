@@ -43,12 +43,12 @@ body {
 
 @keyframes pulseGlow {
   0%, 100% {
-    box-shadow: 0 0 14px rgba(245, 158, 11, 0.3);
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
     border-color: #f59e0b;
   }
   50% {
-    box-shadow: 0 0 24px rgba(245, 158, 11, 0.6);
-    border-color: #fbbf24;
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);
+    border-color: #d97706;
   }
 }
 
@@ -58,14 +58,12 @@ body {
 
 @keyframes ledBlink {
   0%, 100% {
-    box-shadow: 0 0 20px rgba(56, 189, 248, 0.8), 0 0 35px rgba(56, 189, 248, 0.5);
-    border-color: #38bdf8 !important;
-    transform: scale(1.02);
+    box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.4);
+    border-color: #0284c7 !important;
   }
   50% {
-    box-shadow: 0 0 5px rgba(56, 189, 248, 0.2);
-    border-color: #0284c7 !important;
-    transform: scale(1.0);
+    box-shadow: 0 0 0 1px rgba(2, 132, 199, 0.15);
+    border-color: #38bdf8 !important;
   }
 }
 

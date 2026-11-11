@@ -4,9 +4,14 @@ import { db, TargetStatus, CommandStatus, GatewayStatus, TagSize } from '@quicks
 import { computePayloadHash, type TagRenderPayload } from '@quickshelf/esl-protocol';
 import { PosPriceUpdateSchema, processPosPriceUpdate } from './webhook.js';
 import { publishGatewayCommand } from './redis.js';
+import { HighlightFleetService } from './services/highlight.service.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   app.get('/health', async () => {
+    return { status: 'healthy', timestamp: new Date().toISOString() };
+  });
+
+  app.get('/api/health', async () => {
     return { status: 'healthy', timestamp: new Date().toISOString() };
   });
 
@@ -561,6 +566,11 @@ export async function registerRoutes(app: FastifyInstance) {
       durationSeconds: 10,
     } as any);
 
+    // Also trigger physical Highlight locate
+    HighlightFleetService.locateDevice(tag.hardwareId).catch((err) => {
+      console.warn(`[HighlightLocate] Locate request skipped for ${tag.hardwareId}:`, err.message);
+    });
+
     return reply.status(200).send({
       success: true,
       message: `Triggered 10-second LED flash sequence for tag ${tag.hardwareId}`,
@@ -639,6 +649,18 @@ export async function registerRoutes(app: FastifyInstance) {
         desiredPayload: renderPayload as any,
       },
       include: { sku: true, gateway: true },
+    });
+
+    // Asynchronously dispatch OTA price update to physical Highlight tag
+    HighlightFleetService.pushPriceUpdate({
+      tagHardwareId: tag.hardwareId,
+      skuCode: updatedSku.code,
+      prodName: updatedSku.name,
+      priceMinor: parsed.data.priceMinor,
+      mrpMinor,
+      promoBadge: parsed.data.promoBadge,
+    }).catch((err) => {
+      console.warn(`[HighlightOTA] Async dispatch skipped for ${tag.hardwareId}:`, err.message);
     });
 
     return reply.status(200).send({

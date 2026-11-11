@@ -81,15 +81,23 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     return;
   }
 
-  // 2. Bearer JWT Authentication
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  // 2. Bearer JWT Authentication (Header or URL Query parameter for downloads)
+  const queryToken = (request.query as any)?.token as string | undefined;
+  let token: string | undefined;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else if (queryToken) {
+    token = queryToken.trim();
+  }
+
+  if (!token) {
     return reply.status(401).send({
       success: false,
       error: 'Missing or malformed Authorization header. Expected: Bearer <token>',
     });
   }
 
-  const token = authHeader.substring(7).trim();
   const payload = verifyJwt(token);
 
   if (!payload) {

@@ -1,14 +1,19 @@
 # Dependencies
-node_modules/
+node_modules
+**/node_modules/
 .pnpm-store/
 
 # Build outputs
 dist/
+**/dist/
 build/
 .turbo/
+**/.turbo/
 out/
 test-results/
 playwright-report/
+promo-video/
+recovered_modal.tsx
 
 # Environment files
 .env

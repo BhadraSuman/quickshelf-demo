@@ -1,5 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { StoreOnboardingStudio } from './components/StoreOnboardingStudio.js';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import quickshelfLogo from './assets/quickshelf-logo.webp';
+import quickshelfIcon from './assets/quickshelf-icon.png';
+import { DocumentationView } from './components/DocumentationView.js';
+import {
+  HighlightFleetView,
+  type HighlightStatus,
+  type HighlightDevice,
+  type HighlightTemplate,
+  type HighlightProduct,
+} from './components/HighlightFleetView.js';
 import {
   RefreshCw,
   Zap,
@@ -34,18 +43,45 @@ import {
   Sliders,
   DollarSign,
   AlertTriangle,
-  Sun,
-  Moon,
+  Info,
+  Link2,
+  Unlink,
+  ShieldAlert,
   TrendingUp,
   Server,
   Database,
   Lock,
   Check,
-  Building2,
   Package,
+  BookOpen,
+  HelpCircle,
+  FileSpreadsheet,
+  Upload,
+  Download,
+  Percent,
+  Edit2,
+  User,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Mail,
+  MapPin,
+  Building2,
+  Bell,
+  CheckCheck,
+  LogOut,
 } from 'lucide-react';
+import {
+  NotificationToastContainer,
+  NotificationHistoryDrawer,
+  type AppNotification,
+} from './components/NotificationToast';
+import { LoginScreen } from './components/LoginScreen';
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE =
+  (import.meta as any).env?.VITE_API_BASE ||
+  (typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname)
+    ? 'https://ca-quickshelf-prod-api.kindwater-bf8f7b75.centralindia.azurecontainerapps.io'
+    : 'http://localhost:3000');
 
 // ==========================================
 // Types
@@ -174,11 +210,90 @@ interface AuditItem {
 }
 
 export default function App() {
-  // Theme: Stitch Light vs NOC Dark
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  // Navigation & Layout State (Defaulting to Highlight IoT Hardware Fleet)
+  const [activeTab, setActiveTab] = useState<'highlight' | 'pricing' | 'gateways' | 'audit' | 'docs' | 'fleet'>('highlight');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // Navigation (Modules from Stitch Design System)
-  const [activeTab, setActiveTab] = useState<'fleet' | 'onboarding' | 'pricing' | 'gateways' | 'audit'>('fleet');
+  // User Profile & System Settings State
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'hardware' | 'guardrails'>('profile');
+  const [userName, setUserName] = useState(() => localStorage.getItem('qs_user_name') || 'Suman Saurav');
+  const [userEmail, setUserEmail] = useState(() => localStorage.getItem('qs_user_email') || 'operations@quickshelf.io');
+  const [userRole, setUserRole] = useState(() => localStorage.getItem('qs_user_role') || 'Store Operations Lead');
+  const [userStore, setUserStore] = useState(() => localStorage.getItem('qs_user_store') || 'Store 001 - Main Supermarket');
+  const [rfRegion, setRfRegion] = useState(() => localStorage.getItem('qs_rf_region') || '865 - 868 MHz (India WPC Sub-GHz)');
+  const [guardrailStrict, setGuardrailStrict] = useState(true);
+  const [lowBatteryAlertPct, setLowBatteryAlertPct] = useState('20');
+
+  // Authentication & Zero-Trust Security State
+  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('qs_auth_token'));
+
+  const handleLogout = () => {
+    localStorage.removeItem('qs_auth_token');
+    setAuthToken(null);
+    showToast('You have been securely signed out of QuickShelf.', 'info', 'Signed Out');
+  };
+
+  const apiFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const headers = new Headers(init?.headers || {});
+    const currentToken = authToken || localStorage.getItem('qs_auth_token');
+    if (currentToken) {
+      headers.set('Authorization', `Bearer ${currentToken}`);
+    }
+    const res = await fetch(input, { ...init, headers });
+    if (res.status === 401 && currentToken) {
+      localStorage.removeItem('qs_auth_token');
+      setAuthToken(null);
+      showToast('Your authentication session has expired or is unauthorized. Please sign in again.', 'error', 'Session Expired');
+    }
+    return res;
+  };
+
+  // Highlight IoT Cloud Fleet State
+  const [highlightStatus, setHighlightStatus] = useState<HighlightStatus | null>(null);
+  const [highlightDevices, setHighlightDevices] = useState<HighlightDevice[]>([]);
+  const [highlightTemplates, setHighlightTemplates] = useState<HighlightTemplate[]>([]);
+  const [highlightProducts, setHighlightProducts] = useState<HighlightProduct[]>([]);
+  const [syncingHighlight, setSyncingHighlight] = useState(false);
+  const [showHighlightOtaModal, setShowHighlightOtaModal] = useState<HighlightDevice | null>(null);
+  const [otaSkuCode, setOtaSkuCode] = useState('');
+  const [otaSkuName, setOtaSkuName] = useState('');
+  const [otaPrice, setOtaPrice] = useState('');
+  const [otaMrp, setOtaMrp] = useState('');
+  const [otaPromo, setOtaPromo] = useState('');
+  const [otaTemplateId, setOtaTemplateId] = useState('');
+  const [isPushingOta, setIsPushingOta] = useState(false);
+
+  // Highlight Physical Tag Pairing & Unbinding Studio State
+  const [showPairModal, setShowPairModal] = useState<HighlightDevice | boolean | null>(null);
+  const [pairDeviceNumber, setPairDeviceNumber] = useState('');
+  const [pairSkuCode, setPairSkuCode] = useState('');
+  const [pairProdName, setPairProdName] = useState('');
+  const [pairHindiName, setPairHindiName] = useState('');
+  const [pairPrice, setPairPrice] = useState('240.00');
+  const [pairMrp, setPairMrp] = useState('280.00');
+  const [pairPromo, setPairPromo] = useState('FRESH ARRIVAL');
+  const [pairTemplateId, setPairTemplateId] = useState('1256');
+  const [isPairing, setIsPairing] = useState(false);
+
+  // Unbind Confirmation State
+  const [showUnbindModal, setShowUnbindModal] = useState<HighlightDevice | null>(null);
+  const [isUnbinding, setIsUnbinding] = useState(false);
+
+  // Highlight Batch Operations & CSV / Excel Import State
+  const [showCsvModal, setShowCsvModal] = useState(false);
+  const [csvModalTab, setCsvModalTab] = useState<'import' | 'export' | 'batchPrice'>('import');
+  const [csvInputText, setCsvInputText] = useState(
+    `*Barcode,Device name,Organization(CU006INDIA0344:483)\n8003152970,Kalakand Display 7.5,CU006INDIA0344:483`
+  );
+  const [selectedBatchFile, setSelectedBatchFile] = useState<File | null>(null);
+  const [isProcessingCsv, setIsProcessingCsv] = useState(false);
+  const [csvProcessResult, setCsvProcessResult] = useState<any>(null);
+
+  const [batchSaleDiscount, setBatchSaleDiscount] = useState(15);
+  const [batchSalePromoTag, setBatchSalePromoTag] = useState('FESTIVE FLASH SALE');
+  const [isApplyingBatchSale, setIsApplyingBatchSale] = useState(false);
+  const [batchSaleResult, setBatchSaleResult] = useState<any>(null);
 
   // Multi-tenant Scope Selector
   const [selectedOrg, setSelectedOrg] = useState('Acme Retail Chain');
@@ -199,6 +314,12 @@ export default function App() {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // Enterprise Notification System
+  const [activeToasts, setActiveToasts] = useState<AppNotification[]>([]);
+  const [notificationHistory, setNotificationHistory] = useState<AppNotification[]>([]);
+  const [showNotificationCenter, setShowNotificationCenter] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   // Fleet View Controls
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
@@ -250,16 +371,52 @@ export default function App() {
   // Incident Grouping State (SOW ALR-01)
   const [incidentDismissed, setIncidentDismissed] = useState(false);
 
-  // Fetch Core Data
+  // Fetch Highlight Data
+  const fetchHighlightData = async () => {
+    if (!authToken) return;
+    try {
+      const [statusRes, devicesRes, templatesRes, productsRes] = await Promise.all([
+        apiFetch(`${API_BASE}/api/highlight/status`),
+        apiFetch(`${API_BASE}/api/highlight/devices`),
+        apiFetch(`${API_BASE}/api/highlight/templates`),
+        apiFetch(`${API_BASE}/api/highlight/products`),
+      ]);
+
+      if (statusRes.ok) {
+        const s = await statusRes.json();
+        setHighlightStatus(s);
+      }
+      if (devicesRes.ok) {
+        const d = await devicesRes.json();
+        if (d.success && d.devices) setHighlightDevices(d.devices);
+      }
+      if (templatesRes.ok) {
+        const t = await templatesRes.json();
+        if (t.success && t.templates) setHighlightTemplates(t.templates);
+      }
+      if (productsRes.ok) {
+        const p = await productsRes.json();
+        if (p.success && p.products) setHighlightProducts(p.products);
+      }
+    } catch {
+      // Highlight server optional/fallback
+    }
+  };
+
+  const isFetchingRef = useRef(false);
+
+  // Fetch Core Data (Throttled & Non-Overlapping)
   const fetchData = async () => {
+    if (!authToken || isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const [statusRes, tagsRes, storesRes, gatewaysRes, skusRes, chaosRes] = await Promise.all([
-        fetch(`${API_BASE}/api/fleet/status`),
-        fetch(`${API_BASE}/api/tags`),
-        fetch(`${API_BASE}/api/stores`),
-        fetch(`${API_BASE}/api/gateways`),
-        fetch(`${API_BASE}/api/skus`),
-        fetch(`${API_BASE}/api/chaos/metrics`),
+        apiFetch(`${API_BASE}/api/fleet/status`),
+        apiFetch(`${API_BASE}/api/tags`),
+        apiFetch(`${API_BASE}/api/stores`),
+        apiFetch(`${API_BASE}/api/gateways`),
+        apiFetch(`${API_BASE}/api/skus`),
+        apiFetch(`${API_BASE}/api/chaos/metrics`),
       ]);
 
       if (statusRes.ok && tagsRes.ok) {
@@ -274,9 +431,11 @@ export default function App() {
       if (gatewaysRes.ok) setGateways(await gatewaysRes.json());
       if (skusRes.ok) setSkus(await skusRes.json());
       if (chaosRes.ok) setChaos(await chaosRes.json());
+      await fetchHighlightData();
     } catch {
       setApiConnected(false);
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
       setLastRefreshed(new Date());
     }
@@ -284,7 +443,7 @@ export default function App() {
 
   const fetchAuditLogs = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/audit`);
+      const res = await apiFetch(`${API_BASE}/api/audit`);
       if (res.ok) setAuditLogs(await res.json());
     } catch {}
   };
@@ -295,7 +454,11 @@ export default function App() {
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const interval = setInterval(fetchData, 1500);
+    // Graceful 10-second polling cycle, paused when browser tab is inactive
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchData();
+    }, 10000);
     return () => clearInterval(interval);
   }, [autoRefresh]);
 
@@ -312,7 +475,7 @@ export default function App() {
     let isMounted = true;
     setTagDetailLoading(true);
 
-    fetch(`${API_BASE}/api/tags/${inspectTagId}`)
+    apiFetch(`${API_BASE}/api/tags/${inspectTagId}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (isMounted && data) {
@@ -334,9 +497,65 @@ export default function App() {
     };
   }, [inspectTagId]);
 
-  const showToast = (msg: string) => {
-    setActionMessage(msg);
-    setTimeout(() => setActionMessage(null), 4500);
+  const dismissToast = (id: string) => {
+    setActiveToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const showToast = (
+    msg: string,
+    type: 'info' | 'success' | 'error' | 'warning' = 'info',
+    title?: string,
+    details?: string
+  ) => {
+    let inferredType = type;
+    let inferredTitle = title;
+
+    if (!title) {
+      const lower = msg.toLowerCase();
+      if (lower.includes('failed') || lower.includes('error') || lower.includes('violation') || lower.includes('wrong')) {
+        inferredType = 'error';
+        inferredTitle = 'Action Failed';
+      } else if (
+        lower.includes('success') ||
+        lower.includes('active') ||
+        lower.includes('created') ||
+        lower.includes('updated') ||
+        lower.includes('paired') ||
+        lower.includes('reset') ||
+        lower.includes('synced') ||
+        lower.includes('renamed') ||
+        lower.includes('unlinked')
+      ) {
+        inferredType = 'success';
+        inferredTitle = 'Action Completed';
+      } else if (lower.includes('guardrail') || lower.includes('warning') || lower.includes('alert')) {
+        inferredType = 'warning';
+        inferredTitle = 'Guardrail Warning';
+      } else {
+        inferredType = 'info';
+        inferredTitle = 'System Activity';
+      }
+    }
+
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const duration = inferredType === 'error' ? 8500 : 5000;
+    const notif: AppNotification = {
+      id,
+      type: inferredType,
+      title: inferredTitle || 'System Activity',
+      message: msg,
+      details,
+      timestamp: new Date(),
+      duration,
+    };
+
+    setActiveToasts((prev) => [notif, ...prev.slice(0, 3)]); // Keep max 4 visible toasts
+    setNotificationHistory((prev) => [notif, ...prev.slice(0, 49)]); // Keep 50 in history
+    setUnreadNotifications((prev) => prev + 1);
+
+    setTimeout(() => {
+      dismissToast(id);
+    }, duration);
   };
 
   const formatRupees = (minorUnits: number) => (minorUnits / 100).toFixed(2);
@@ -391,48 +610,48 @@ export default function App() {
 
   // Actions
   const handleTriggerFlashSale = async (discountPct: number) => {
-    showToast(`⚡ Broadcasting ${discountPct}% Flash Sale across fleet...`);
+    showToast(`Broadcasting ${discountPct}% Flash Sale across fleet...`);
     try {
-      const res = await fetch(`${API_BASE}/api/pos/flash-sale`, {
+      const res = await apiFetch(`${API_BASE}/api/pos/flash-sale`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ discountPct }),
       });
       const data = await res.json();
       if (data.success) {
-        showToast(`🚀 Dispatched ${discountPct}% flash discount. Sync-Engine radio pacing active.`);
+        showToast(`Dispatched ${discountPct}% flash discount. Sync-Engine radio pacing active.`);
         fetchData();
       }
     } catch {
-      showToast('❌ Failed to trigger flash sale');
+      showToast('Failed to trigger flash sale');
     }
   };
 
   const handleResetPrices = async () => {
     showToast('Resetting fleet prices to standard MRP...');
     try {
-      const res = await fetch(`${API_BASE}/api/pos/reset-prices`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/pos/reset-prices`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        showToast('↺ Reset all prices to standard MRP.');
+        showToast('Reset all prices to standard MRP.');
         fetchData();
       }
     } catch {
-      showToast('❌ Failed to reset prices');
+      showToast('Failed to reset prices');
     }
   };
 
   const handleForceGatewaySync = async (gatewayId: string, hwId: string) => {
     showToast(`Dispatching wire sync_request to AP ${hwId}...`);
     try {
-      const res = await fetch(`${API_BASE}/api/gateways/${gatewayId}/sync`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/api/gateways/${gatewayId}/sync`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        showToast(`📡 Dispatched inventory audit sync_request to ${hwId}.`);
+        showToast(`Dispatched inventory audit sync_request to ${hwId}.`);
         fetchData();
       }
     } catch {
-      showToast(`❌ Failed to sync ${hwId}`);
+      showToast(`Failed to sync ${hwId}`);
     }
   };
 
@@ -441,7 +660,7 @@ export default function App() {
     showToast(`Updating label ${tagDetail.hardwareId}...`);
 
     try {
-      const tagRes = await fetch(`${API_BASE}/api/tags/${tagDetail.id}`, {
+      const tagRes = await apiFetch(`${API_BASE}/api/tags/${tagDetail.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -457,11 +676,11 @@ export default function App() {
         if (!isNaN(priceMinor) && priceMinor > 0) {
           // PRC-04 Guardrail Check
           if (priceMinor > mrpMinor) {
-            showToast(`⚠️ Guardrail Violation (PRC-04): Selling price cannot exceed MRP.`);
+            showToast('Guardrail Violation (PRC-04): Selling price cannot exceed MRP.');
             return;
           }
 
-          await fetch(`${API_BASE}/api/skus/${inspectorSkuId}`, {
+          await apiFetch(`${API_BASE}/api/skus/${inspectorSkuId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -474,21 +693,25 @@ export default function App() {
       }
 
       if (tagRes.ok) {
-        showToast(`✅ Successfully updated ${tagDetail.hardwareId}! Radio divergence loop triggered.`);
+        showToast(`Successfully updated ${tagDetail.hardwareId}. Radio divergence loop triggered.`);
         fetchData();
         setInspectTagId(tagDetail.id);
       }
     } catch {
-      showToast('❌ Failed to update tag details');
+      showToast('Failed to update tag details');
     }
   };
 
   const handleLocateTag = async (tagHardwareId: string, gatewayHwId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (blinkingTagIds.has(tagHardwareId)) {
+      await handleStopFlashHighlightDevice(tagHardwareId);
+      return;
+    }
     try {
-      showToast(`📍 Blinking LED on Tag ${tagHardwareId} (10s pulse) via AP ${gatewayHwId}...`);
+      showToast(`Blinking LED on Tag ${tagHardwareId} (10s pulse) via AP ${gatewayHwId}...`);
       setBlinkingTagIds((prev) => new Set(prev).add(tagHardwareId));
-      await fetch(`${API_BASE}/api/tags/${tagHardwareId}/locate`, { method: 'POST' });
+      await apiFetch(`${API_BASE}/api/tags/${tagHardwareId}/locate`, { method: 'POST' });
       setTimeout(() => {
         setBlinkingTagIds((prev) => {
           const next = new Set(prev);
@@ -497,7 +720,7 @@ export default function App() {
         });
       }, 10000);
     } catch {
-      showToast(`⚠️ Tag ${tagHardwareId} locate command queued.`);
+      showToast(`Tag ${tagHardwareId} locate command queued.`);
     }
   };
 
@@ -515,12 +738,12 @@ export default function App() {
     const mrp = parseFloat(quickMrpRupees);
 
     if (isNaN(price) || price < 0) {
-      showToast('⚠️ Please enter a valid price.');
+      showToast('Please enter a valid price.');
       return;
     }
 
     if (!isNaN(mrp) && price > mrp) {
-      showToast(`❌ Guardrail Violation (PRC-04): Selling price (₹${price.toFixed(2)}) cannot exceed MRP (₹${mrp.toFixed(2)}).`);
+      showToast(`Guardrail Violation (PRC-04): Selling price (₹${price.toFixed(2)}) cannot exceed MRP (₹${mrp.toFixed(2)}).`);
       return;
     }
 
@@ -528,7 +751,7 @@ export default function App() {
     const mrpMinor = !isNaN(mrp) ? Math.round(mrp * 100) : undefined;
 
     try {
-      const res = await fetch(`${API_BASE}/api/tags/${quickPriceTag.id}/quick-price`, {
+      const res = await apiFetch(`${API_BASE}/api/tags/${quickPriceTag.id}/quick-price`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -540,26 +763,26 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        showToast(`❌ ${data.error || 'Failed to update price'}`);
+        showToast(data.error || 'Failed to update price');
         return;
       }
 
-      showToast(`⚡ Price for ${quickPriceTag.hardwareId} updated to ₹${price.toFixed(2)}! Dispatched to AP.`);
+      showToast(`Price for ${quickPriceTag.hardwareId} updated to ₹${price.toFixed(2)}. Dispatched to AP.`);
       setQuickPriceTag(null);
       fetchData();
     } catch {
-      showToast('❌ Failed to update price.');
+      showToast('Failed to update price.');
     }
   };
 
   const handleAddGateway = async () => {
     if (!newGatewayHwId.trim()) {
-      showToast('⚠️ Please enter an Access Point Hardware ID (e.g. gw-blr-02).');
+      showToast('Please enter an Access Point Hardware ID (e.g. gw-blr-02).');
       return;
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/gateways`, {
+      const res = await apiFetch(`${API_BASE}/api/gateways`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -571,54 +794,624 @@ export default function App() {
 
       if (!res.ok) {
         const data = await res.json();
-        showToast(`❌ ${data.error || 'Failed to add gateway'}`);
+        showToast(data.error || 'Failed to add gateway');
         return;
       }
 
-      showToast(`✅ Access Point ${newGatewayHwId.trim()} provisioned & online!`);
+      showToast(`Access Point ${newGatewayHwId.trim()} provisioned & online.`);
       setShowAddGatewayModal(false);
       setNewGatewayHwId('');
       fetchData();
     } catch {
-      showToast('❌ Failed to provision gateway.');
+      showToast('Failed to provision gateway.');
     }
   };
 
   const handleUpdateGatewayRate = async (gatewayId: string, maxTagsPerSec: number) => {
     try {
-      const res = await fetch(`${API_BASE}/api/gateways/${gatewayId}`, {
+      const res = await apiFetch(`${API_BASE}/api/gateways/${gatewayId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ maxTagsPerSec }),
       });
       if (res.ok) {
-        showToast(`⚡ AP rate limit updated to ${maxTagsPerSec} tags/sec.`);
+        showToast(`AP rate limit updated to ${maxTagsPerSec} tags/sec.`);
         setGateways((prev) =>
           prev.map((g) => (g.id === gatewayId ? { ...g, maxTagsPerSec } : g))
         );
       }
     } catch {
-      showToast('❌ Failed to update AP rate limit.');
+      showToast('Failed to update AP rate limit.');
     }
   };
 
-  // Theme-aware color palette
-  const isDark = theme === 'dark';
+  // Highlight IoT Fleet Handlers
+  const handleSyncHighlight = async () => {
+    setSyncingHighlight(true);
+    showToast('Synchronizing AP base stations & physical tags from Highlight Cloud...', 'info', 'Sync Started');
+    try {
+      const res = await apiFetch(`${API_BASE}/api/highlight/sync`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(
+          `Synchronized ${data.synced?.tagCount ?? 0} physical tags, ${data.synced?.apCount ?? 1} AP station, ${data.synced?.templateCount ?? 0} templates.`,
+          'success',
+          'Highlight Cloud Synchronized',
+          `Base Station: E43819636067 (Online) • Org: CU006INDIA0344 • Timestamp: ${new Date().toLocaleTimeString()}`
+        );
+        await Promise.all([fetchData(), fetchHighlightData()]);
+      } else {
+        showToast(
+          `Highlight Cloud sync failed: ${data.error || 'Unknown error'}`,
+          'error',
+          'Cloud Sync Failed',
+          data.error
+        );
+      }
+    } catch (err: any) {
+      showToast(`Highlight Cloud network error: ${err.message}`, 'error', 'Cloud Network Error', err.message);
+    } finally {
+      setSyncingHighlight(false);
+    }
+  };
+
+  const handleLocateHighlightDevice = async (deviceNumber: string) => {
+    try {
+      showToast(`Querying live telemetry for physical ESL ${deviceNumber}...`, 'info', 'Querying Telemetry');
+      const res = await apiFetch(`${API_BASE}/api/highlight/locate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceNumber }),
+      });
+      const data = await res.json();
+      if (data.success && data.device) {
+        const d = data.device;
+        const bat = (d.powerLevel ?? 5) * 20;
+        showToast(
+          `ESL ${deviceNumber} RF telemetry confirmed online.`,
+          'success',
+          'Device Telemetry Live',
+          `Battery: ${bat}% (${d.powerLevel ?? 5}/5) • RF Signal: ${d.signal ?? -65} dBm • AP: ${d.stationId || 'E43819636067'} • Template: ${d.templateName || 'Standard'}`
+        );
+      } else {
+        showToast(
+          `Telemetry query failed for ESL ${deviceNumber}.`,
+          'error',
+          'Ping Failed',
+          data.error || 'Gateway busy or device unreachable'
+        );
+      }
+    } catch (err: any) {
+      showToast(`Failed to query device: ${err.message}`, 'error', 'Device Query Error', err.message);
+    }
+  };
+
+  const handleFlashHighlightDevice = async (deviceNumber: string, color: number = 2, duration: number = 30) => {
+    try {
+      const colorNames: Record<number, string> = {
+        1: 'Red',
+        2: 'Green',
+        3: 'Blue',
+        4: 'Yellow',
+        5: 'Orange',
+        6: 'Cyan',
+        7: 'Purple',
+        8: 'White',
+      };
+      const colorName = colorNames[color] || 'Green';
+      showToast(
+        `Dispatched over-the-air LED flash command to ESL ${deviceNumber}...`,
+        'info',
+        'Triggering LED Flash',
+        `Color: ${colorName} (${color}) • Duration: ${duration}s • Base Station: E43819636067`
+      );
+      setBlinkingTagIds((prev) => new Set(prev).add(deviceNumber));
+
+      const res = await apiFetch(`${API_BASE}/api/highlight/flash`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceNumber,
+          lightColor: color,
+          lightTime: duration,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(
+          `Physical ${colorName} LED is now blinking on ESL ${deviceNumber} for ${duration} seconds.`,
+          'success',
+          'Physical LED Active (Pick-to-Light)',
+          `Gateway: E43819636067 • Tag: ${deviceNumber} • Status: 200 OK • Auto-off in ${duration}s`
+        );
+        setTimeout(() => {
+          setBlinkingTagIds((prev) => {
+            const next = new Set(prev);
+            next.delete(deviceNumber);
+            return next;
+          });
+        }, duration * 1000);
+      } else {
+        showToast(
+          `Could not activate LED flash on ESL ${deviceNumber}.`,
+          'error',
+          'LED Flash Failed',
+          `Server Error: ${data.error || 'Sub-GHz RF timeout or Base Station busy'}`
+        );
+        setBlinkingTagIds((prev) => {
+          const next = new Set(prev);
+          next.delete(deviceNumber);
+          return next;
+        });
+      }
+    } catch (err: any) {
+      showToast(
+        `Failed to communicate with RF Gateway for ESL ${deviceNumber}.`,
+        'error',
+        'LED Flash Network Error',
+        err.message
+      );
+      setBlinkingTagIds((prev) => {
+        const next = new Set(prev);
+        next.delete(deviceNumber);
+        return next;
+      });
+    }
+  };
+
+  const handleStopFlashHighlightDevice = async (deviceNumber?: string) => {
+    try {
+      showToast(
+        deviceNumber ? `Sending stop command for ESL ${deviceNumber}...` : 'Stopping all active flashing ESL LEDs...',
+        'info',
+        'Stopping LED Flash'
+      );
+      const res = await apiFetch(`${API_BASE}/api/highlight/flash-stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(deviceNumber ? { deviceNumber } : {}),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(
+          deviceNumber
+            ? `LED flashing stopped on physical ESL ${deviceNumber}.`
+            : 'All active flashing ESL tags stopped across the store.',
+          'success',
+          'LED Flash Stopped',
+          `Acknowledged by Base Station E43819636067`
+        );
+        setBlinkingTagIds((prev) => {
+          if (!deviceNumber) return new Set();
+          const next = new Set(prev);
+          next.delete(deviceNumber);
+          return next;
+        });
+      } else {
+        showToast(
+          `Failed to stop LED flash: ${data.error || 'Gateway busy'}`,
+          'error',
+          'Stop Flash Failed',
+          data.error
+        );
+      }
+    } catch (err: any) {
+      showToast(`Network error stopping LED: ${err.message}`, 'error', 'Stop Flash Error', err.message);
+    }
+  };
+
+  const handleOpenHighlightOtaModal = (dev: HighlightDevice) => {
+    setShowHighlightOtaModal(dev);
+    setOtaSkuCode(dev.skuCode || `SKU-${dev.deviceNumber.slice(-4)}`);
+    setOtaSkuName(dev.skuName || 'Bada wala kalakand 500g');
+    setOtaPrice('175.00');
+    setOtaMrp('220.00');
+    setOtaPromo('SPECIAL OFFER');
+    setOtaTemplateId(dev.templateId || (dev as any).templateList?.[0]?.toString() || '1256');
+  };
+
+  const handleExecuteHighlightOtaPush = async () => {
+    if (!showHighlightOtaModal) return;
+    const p = parseFloat(otaPrice);
+    const m = parseFloat(otaMrp);
+
+    if (isNaN(p) || p <= 0) {
+      showToast('Please enter a valid positive price.');
+      return;
+    }
+    if (!isNaN(m) && p > m) {
+      showToast(`Guardrail Violation (PRC-04): Selling price (₹${p.toFixed(2)}) cannot exceed MRP (₹${m.toFixed(2)}).`);
+      return;
+    }
+
+    setIsPushingOta(true);
+    showToast(
+      `Broadcasting OTA price ₹${p.toFixed(2)} to physical ESL ${showHighlightOtaModal.deviceNumber}...`,
+      'info',
+      'OTA Price Push Dispatched',
+      `SKU: ${otaSkuCode} • Template: ${otaTemplateId || 1213} • Base Station: E43819636067`
+    );
+    try {
+      const res = await apiFetch(`${API_BASE}/api/highlight/push-price`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceNumber: showHighlightOtaModal.deviceNumber,
+          skuCode: otaSkuCode,
+          skuName: otaSkuName,
+          price: p,
+          mrp: !isNaN(m) ? m : undefined,
+          promoBadge: otaPromo.trim() ? otaPromo.trim() : undefined,
+          templateId: otaTemplateId || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(
+          `Physical ESL ${showHighlightOtaModal.deviceNumber} updated with price ₹${p.toFixed(2)}.`,
+          'success',
+          'Price Updated Over-the-Air',
+          `Sync Latency: ${data.syncLatencyMs}ms • Product: "${otaSkuName}" • Bound Template: ${data.templateId || 1213}`
+        );
+        setShowHighlightOtaModal(null);
+        await Promise.all([fetchHighlightData(), fetchData()]);
+      } else {
+        showToast(
+          `Could not update price on physical ESL ${showHighlightOtaModal.deviceNumber}.`,
+          'error',
+          'OTA Update Failed',
+          `Highlight API Error: ${data.error || 'Server rejected command'}`
+        );
+      }
+    } catch (err: any) {
+      showToast(
+        `Failed to reach Highlight Cloud API: ${err.message}`,
+        'error',
+        'OTA Push Network Error',
+        err.message
+      );
+    } finally {
+      setIsPushingOta(false);
+    }
+  };
+
+  const handleOpenPairModal = (device?: HighlightDevice, prefillProduct?: HighlightProduct) => {
+    const targetDev = device || highlightDevices.find((d) => !d.skuCode) || highlightDevices[0];
+    const devNum = targetDev ? targetDev.deviceNumber : highlightDevices[0]?.deviceNumber || '';
+    setPairDeviceNumber(devNum);
+
+    if (prefillProduct) {
+      setPairSkuCode(prefillProduct.uniqueId);
+      setPairProdName(prefillProduct.prodName);
+      setPairHindiName(prefillProduct.custFeature1 || '');
+      setPairPrice(typeof prefillProduct.price === 'number' ? prefillProduct.price.toFixed(2) : String(prefillProduct.price));
+      const mrpMatch = prefillProduct.custFeature2?.match(/\d+(\.\d+)?/);
+      setPairMrp(mrpMatch ? mrpMatch[0] : typeof prefillProduct.price === 'number' ? prefillProduct.price.toFixed(2) : String(prefillProduct.price));
+      setPairPromo(prefillProduct.custFeature3?.replace(/^PROMO:\s*/i, '') || prefillProduct.copyWriting || '');
+      setPairTemplateId(targetDev?.templateId || '1256');
+    } else
+    if (devNum === '8003152970') {
+      setPairSkuCode('SKU-KLK-750');
+      setPairProdName('Bada Wala Kalakand 500g');
+      setPairHindiName('बड़ा वाला कलाकंद');
+      setPairPrice('240.00');
+      setPairMrp('280.00');
+      setPairPromo('WEEKEND SPECIAL');
+      setPairTemplateId('1256');
+    } else if (devNum === '8003144211') {
+      setPairSkuCode('SKU-DAL-1KG');
+      setPairProdName('Tata Sampann Toor Dal 1kg');
+      setPairHindiName('तूर दाल प्रीमियम');
+      setPairPrice('185.00');
+      setPairMrp('210.00');
+      setPairPromo('BEST PRICE');
+      setPairTemplateId('1217');
+    } else {
+      setPairSkuCode(targetDev?.skuCode || `SKU-ITEM-${devNum.slice(-4)}`);
+      setPairProdName(targetDev?.skuName || 'Fortune Sunflower Oil 1L');
+      setPairHindiName('फॉर्च्यून सूरजमुखी तेल');
+      setPairPrice('145.00');
+      setPairMrp('170.00');
+      setPairPromo('FLAT 15% OFF');
+      setPairTemplateId(targetDev?.templateId || '1213');
+    }
+    setShowPairModal(targetDev || true);
+  };
+
+  const handleExecutePairTag = async () => {
+    if (!pairDeviceNumber || !pairSkuCode.trim()) {
+      showToast('Please select a device and enter a valid SKU.', 'warning', 'Incomplete Form');
+      return;
+    }
+    const p = parseFloat(pairPrice);
+    const m = parseFloat(pairMrp);
+    if (isNaN(p) || p <= 0) {
+      showToast('Please enter a valid positive price.', 'warning', 'Invalid Price');
+      return;
+    }
+    if (!isNaN(m) && p > m) {
+      showToast(
+        `Selling price (₹${p.toFixed(2)}) cannot exceed MRP (₹${m.toFixed(2)}).`,
+        'warning',
+        'Guardrail Violation (PRC-04)',
+        'Legal compliance: Retail selling price must not exceed Maximum Retail Price.'
+      );
+      return;
+    }
+
+    setIsPairing(true);
+    showToast(
+      `Pairing physical tag ${pairDeviceNumber} with SKU ${pairSkuCode}...`,
+      'info',
+      'Pairing In Progress',
+      `Product: "${pairProdName}" • Template ID: ${pairTemplateId || 1213}`
+    );
+    try {
+      const res = await apiFetch(`${API_BASE}/api/highlight/bind`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceNumber: pairDeviceNumber,
+          skuCode: pairSkuCode.trim(),
+          prodName: pairProdName.trim(),
+          hindiName: pairHindiName.trim(),
+          price: p,
+          mrp: !isNaN(m) ? m : undefined,
+          promoBadge: pairPromo.trim() ? pairPromo.trim() : undefined,
+          templateId: Number(pairTemplateId) || 1213,
+          stationId: 'E43819636067',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(
+          `Physical ESL ${pairDeviceNumber} successfully paired with SKU ${pairSkuCode}.`,
+          'success',
+          'Device Paired Successfully',
+          `Product: "${pairProdName}" • Bound Template: ${pairTemplateId || 1213} • Base Station: E43819636067`
+        );
+        setShowPairModal(null);
+        await Promise.all([fetchHighlightData(), fetchData()]);
+      } else {
+        showToast(
+          `Failed to pair ESL ${pairDeviceNumber}.`,
+          'error',
+          'Pairing Failed',
+          data.error || 'Server error'
+        );
+      }
+    } catch (err: any) {
+      showToast(`Pairing network error: ${err.message}`, 'error', 'Pairing Network Error', err.message);
+    } finally {
+      setIsPairing(false);
+    }
+  };
+
+  const handleOpenUnbindModal = (dev: HighlightDevice) => {
+    setShowUnbindModal(dev);
+  };
+
+  const handleExecuteUnbind = async () => {
+    if (!showUnbindModal) return;
+    const devNum = showUnbindModal.deviceNumber;
+    setIsUnbinding(true);
+    showToast(`Unbinding physical ESL tag ${devNum}...`, 'info', 'Unbinding Started');
+    try {
+      const res = await apiFetch(`${API_BASE}/api/highlight/unbind`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceNumber: devNum,
+          stationId: showUnbindModal.stationId || 'E43819636067',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(
+          `Physical tag ${devNum} unbound successfully.`,
+          'success',
+          'Device Unbound',
+          `Screen cleared and tag returned to Standby Pool.`
+        );
+        setShowUnbindModal(null);
+        await Promise.all([fetchHighlightData(), fetchData()]);
+      } else {
+        showToast(`Could not unbind ESL ${devNum}.`, 'error', 'Unbind Failed', data.error || 'Server error');
+      }
+    } catch (err: any) {
+      showToast(`Unbind network error: ${err.message}`, 'error', 'Unbind Network Error', err.message);
+    } finally {
+      setIsUnbinding(false);
+    }
+  };
+
+  const handleSaveUserProfile = () => {
+    localStorage.setItem('qs_user_name', userName);
+    localStorage.setItem('qs_user_email', userEmail);
+    localStorage.setItem('qs_user_role', userRole);
+    localStorage.setItem('qs_user_store', userStore);
+    localStorage.setItem('qs_rf_region', rfRegion);
+    showToast('User preferences & operator profile updated.', 'success', 'Profile Saved');
+    setShowSettingsModal(false);
+  };
+
+  const handleOpenCsvModal = () => {
+    setShowCsvModal(true);
+    setCsvProcessResult(null);
+    setBatchSaleResult(null);
+  };
+
+  const handleRenameDevice = async (deviceNumber: string, newName: string) => {
+    try {
+      const res = await apiFetch(`${API_BASE}/api/highlight/devices/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceNumber, deviceName: newName }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(
+          `Physical ESL ${deviceNumber} nickname updated to "${newName}".`,
+          'success',
+          'Device Renamed',
+          `Synced with Highlight IoT registry`
+        );
+        await fetchHighlightData();
+      } else {
+        showToast(`Failed to rename device ${deviceNumber}.`, 'error', 'Rename Error', data.error);
+      }
+    } catch (err: any) {
+      showToast(`Rename network error: ${err.message}`, 'error', 'Rename Error', err.message);
+    }
+  };
+
+  const handleProcessCsv = async () => {
+    setIsProcessingCsv(true);
+    setCsvProcessResult(null);
+    try {
+      let body: any = {};
+      if (selectedBatchFile) {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64 = result.includes(',') ? result.split(',')[1] : result;
+            resolve(base64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(selectedBatchFile);
+        });
+        const fileBase64 = await base64Promise;
+        body = { fileBase64, fileName: selectedBatchFile.name };
+      } else {
+        if (!csvInputText.trim()) {
+          showToast('Please provide CSV content or select a file.');
+          setIsProcessingCsv(false);
+          return;
+        }
+        body = { csvContent: csvInputText.trim() };
+      }
+
+      const res = await apiFetch(`${API_BASE}/api/highlight/import-devices-csv`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      setCsvProcessResult(data);
+      if (data.success) {
+        showToast(`Batch processed ${data.total} devices successfully.`);
+        await fetchHighlightData();
+      } else {
+        showToast(`Batch process error: ${data.error}`);
+      }
+    } catch (err: any) {
+      showToast(`Batch upload error: ${err.message}`);
+      setCsvProcessResult({ success: false, error: err.message });
+    } finally {
+      setIsProcessingCsv(false);
+    }
+  };
+
+  const handleApplyBatchSale = async () => {
+    setIsApplyingBatchSale(true);
+    setBatchSaleResult(null);
+    try {
+      const discountPct = Number(batchSaleDiscount) || 10;
+      const factor = (100 - discountPct) / 100;
+
+      const productsToUpdate = highlightDevices
+        .filter((d) => d.skuCode)
+        .map((d) => {
+          const currentPrice = 240;
+          const newPrice = Math.round(currentPrice * factor);
+          return {
+            uniqueId: d.skuCode,
+            prodName: d.skuName || 'Promotional Item',
+            price: newPrice,
+            priceUnit: '₹',
+            commodityUnit: '1 unit',
+            promoBadge: batchSalePromoTag || `${discountPct}% OFF FLASH SALE`,
+            hindiName: 'विशेष छूट',
+            mrp: 280,
+          };
+        });
+
+      if (productsToUpdate.length === 0) {
+        productsToUpdate.push({
+          uniqueId: 'SKU-KLK-750',
+          prodName: 'Bada Wala Kalakand (Special 500g)',
+          price: Math.round(280 * factor),
+          priceUnit: '₹',
+          commodityUnit: '1 unit',
+          promoBadge: batchSalePromoTag || `${discountPct}% OFF FLASH SALE`,
+          hindiName: 'बड़ा वाला कलाकंद स्पेशल',
+          mrp: 280,
+        });
+      }
+
+      const res = await apiFetch(`${API_BASE}/api/highlight/batch-update-products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: productsToUpdate }),
+      });
+      const data = await res.json();
+      setBatchSaleResult(data);
+      if (data.success) {
+        showToast(`Batch updated ${productsToUpdate.length} commodities in Highlight Catalog.`);
+        await fetchHighlightData();
+      } else {
+        showToast(`Batch update failed: ${data.error}`);
+      }
+    } catch (err: any) {
+      showToast(`Batch update error: ${err.message}`);
+      setBatchSaleResult({ success: false, error: err.message });
+    } finally {
+      setIsApplyingBatchSale(false);
+    }
+  };
+
+  // Enterprise SaaS Light Palette
   const c = {
-    bg: isDark ? '#090d16' : '#faf8ff',
-    surface: isDark ? '#0f172a' : '#ffffff',
-    surfaceSubtle: isDark ? '#1e293b' : '#f1f5f9',
-    border: isDark ? '#1e293b' : '#e2e8f0',
-    borderStrong: isDark ? '#334155' : '#cbd5e1',
-    text: isDark ? '#f8fafc' : '#131b2e',
-    textMuted: isDark ? '#94a3b8' : '#434655',
-    primary: '#004ac6',
-    primaryHover: '#2563eb',
+    bg: '#f8fafc',
+    surface: '#ffffff',
+    surfaceSubtle: '#f1f5f9',
+    surfaceHover: '#e2e8f0',
+    border: '#e2e8f0',
+    borderStrong: '#cbd5e1',
+    text: '#0f172a',
+    textSecondary: '#475569',
+    textMuted: '#64748b',
+    primary: '#2563eb',
+    primaryHover: '#1d4ed8',
+    primaryBg: '#eff6ff',
     accentViolet: '#6366f1',
     success: '#059669',
+    successBg: '#ecfdf5',
     warning: '#d97706',
-    error: '#ba1a1a',
+    warningBg: '#fffbeb',
+    error: '#dc2626',
+    errorBg: '#fef2f2',
   };
+
+  // Zero-Trust Authentication Gate: Require Login before rendering operations portal
+  if (!authToken) {
+    return (
+      <>
+        <LoginScreen
+          apiBase={API_BASE}
+          onLoginSuccess={(token, user) => {
+            setAuthToken(token);
+            setUserName(user.name);
+            setUserEmail(user.email);
+            setUserRole(user.role);
+            showToast(`Signed in as ${user.name} (${user.email})`, 'success', 'Welcome Back');
+          }}
+        />
+        <NotificationToastContainer toasts={activeToasts} onDismiss={dismissToast} />
+      </>
+    );
+  }
 
   return (
     <div
@@ -632,14 +1425,15 @@ export default function App() {
       }}
     >
       {/* =========================================================================
-          LEFT SIDEBAR: STITCH NAVIGATION BAR
+          LEFT SIDEBAR: COLLAPSIBLE STITCH NAVIGATION & SETTINGS
       ========================================================================== */}
       <aside
         style={{
-          width: '280px',
+          width: sidebarCollapsed ? '72px' : '260px',
+          transition: 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s ease',
           backgroundColor: c.surface,
           borderRight: `1px solid ${c.border}`,
-          padding: '20px 16px',
+          padding: sidebarCollapsed ? '16px 8px' : '18px 14px',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
@@ -647,80 +1441,130 @@ export default function App() {
           position: 'sticky',
           top: 0,
           height: '100vh',
+          boxSizing: 'border-box',
+          zIndex: 40,
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Logo & Operations Hub Badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
+          {/* Brand Logo & Collapse Toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'space-between', gap: '8px' }}>
+            {sidebarCollapsed ? (
+              <img
+                src={quickshelfIcon}
+                alt="QuickShelf Icon"
+                style={{ width: '32px', height: '32px', objectFit: 'contain' }}
+              />
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                <img
+                  src={quickshelfLogo}
+                  alt="QuickShelf Logo"
+                  style={{ height: '28px', maxWidth: '140px', objectFit: 'contain' }}
+                />
+                <span
+                  style={{
+                    fontSize: '9px',
+                    fontWeight: 800,
+                    backgroundColor: '#dbe1ff',
+                    color: '#00174b',
+                    padding: '2px 5px',
+                    borderRadius: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  SAAS HUB
+                </span>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               style={{
-                backgroundColor: c.primary,
-                color: '#ffffff',
-                fontWeight: 900,
-                fontSize: '18px',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                letterSpacing: '-0.5px',
-                boxShadow: '0 2px 8px rgba(0, 74, 198, 0.35)',
+                backgroundColor: 'transparent',
+                border: 'none',
+                color: c.textMuted,
+                cursor: 'pointer',
+                padding: '4px',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
               }}
             >
-              QS
-            </div>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: '18px', letterSpacing: '-0.5px', color: c.text }}>
-                Quickshelf
-              </div>
+              {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
+          </div>
+
+          {/* Fleet Health Quick Widget (Dynamic Live Metrics) */}
+          {(() => {
+            const totalLabelsCount = highlightStatus?.connected && highlightDevices.length > 0 
+              ? highlightDevices.length 
+              : (fleet ? fleet.totalTags : 10);
+            const divergedCount = fleet ? fleet.divergedTags : blinkingTagIds.size;
+            const fleetHealthPct = fleet 
+              ? `${fleet.convergencePct.toFixed(1)}%` 
+              : (divergedCount > 0 ? `${(((totalLabelsCount - divergedCount) / totalLabelsCount) * 100).toFixed(1)}%` : '100.0%');
+
+            return sidebarCollapsed ? (
               <div
                 style={{
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  backgroundColor: isDark ? '#1e293b' : '#dbe1ff',
-                  color: isDark ? '#93c5fd' : '#00174b',
-                  padding: '1px 6px',
-                  borderRadius: '4px',
-                  display: 'inline-block',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
+                  backgroundColor: c.surfaceSubtle,
+                  border: `1px solid ${c.border}`,
+                  borderRadius: '8px',
+                  padding: '8px 2px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                  cursor: 'pointer',
+                }}
+                title={`Fleet Health: ${fleetHealthPct} (${totalLabelsCount} labels, ${divergedCount} diverged) — Calculated as: ((Total - Diverged) / Total) * 100`}
+              >
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: divergedCount > 0 ? c.warning : c.success }} />
+                <span style={{ fontSize: '10px', fontWeight: 800, color: divergedCount > 0 ? c.warning : c.success }}>
+                  {fleetHealthPct}
+                </span>
+              </div>
+            ) : (
+              <div
+                style={{
+                  backgroundColor: c.surfaceSubtle,
+                  border: `1px solid ${c.border}`,
+                  borderRadius: '10px',
+                  padding: '10px 12px',
                 }}
               >
-                Operations Hub
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px', color: c.textMuted, fontWeight: 700 }}>
+                  <span style={{ textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>Fleet Health Status</span>
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: divergedCount > 0 ? c.warning : c.success }} />
+                </div>
+                <div style={{ fontSize: '22px', fontWeight: 900, color: divergedCount > 0 ? c.warning : c.success, marginTop: '2px' }}>
+                  {fleetHealthPct}
+                </div>
+                <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '2px', display: 'flex', gap: '6px', whiteSpace: 'nowrap' }}>
+                  <span>{totalLabelsCount} Labels</span>
+                  <span>•</span>
+                  <span style={{ color: divergedCount > 0 ? c.warning : c.success, fontWeight: 700 }}>
+                    {divergedCount} Diverged
+                  </span>
+                </div>
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
-          {/* Fleet Health Quick Widget */}
-          <div
-            style={{
-              backgroundColor: c.surfaceSubtle,
-              border: `1px solid ${c.border}`,
-              borderRadius: '10px',
-              padding: '12px 14px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: c.textMuted, fontWeight: 700 }}>
-              <span style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Fleet Health Status</span>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: c.success }}></span>
-            </div>
-            <div style={{ fontSize: '24px', fontWeight: 900, color: c.success, marginTop: '4px' }}>
-              {fleet ? `${fleet.convergencePct.toFixed(1)}%` : '99.8%'}
-            </div>
-            <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '2px', display: 'flex', gap: '6px' }}>
-              <span>{fleet ? fleet.totalTags : '2,500'} Labels</span>
-              <span>•</span>
-              <span style={{ color: fleet && fleet.divergedTags > 0 ? c.warning : c.success, fontWeight: 700 }}>
-                {fleet ? fleet.divergedTags : 0} Diverged
-              </span>
-            </div>
-          </div>
-
-          {/* Navigation Links */}
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {/* Navigation Links (Streamlined Essential Operational Hub) */}
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
             {[
-              { id: 'fleet', label: 'Labels & Live Updates', icon: Activity, badge: fleet && fleet.divergedTags > 0 ? `${fleet.divergedTags} Out of Sync` : 'All Synced', badgeColor: fleet && fleet.divergedTags > 0 ? c.warning : c.success },
-              { id: 'gateways', label: 'Access Points (APs)', icon: Radio, badge: `${gateways.length} Online`, badgeColor: c.primaryHover },
-              { id: 'pricing', label: 'Dynamic Pricing & SKUs', icon: DollarSign, badge: 'Guardrails' },
-              { id: 'audit', label: 'Audit & Diagnostics', icon: FileText, badge: '7 Problems' },
-              { id: 'onboarding', label: 'Store Onboarding', icon: Building2, badge: 'Coming Soon', badgeColor: '#eab308' },
+              { id: 'highlight', label: 'Hardware Fleet', icon: Cpu, badge: highlightStatus?.connected ? `${highlightDevices.length} Tags` : 'Online', badgeColor: '#059669' },
+              { id: 'pricing', label: 'Dynamic Pricing', icon: DollarSign, badge: 'PRC-04', badgeColor: '#2563eb' },
+              { id: 'audit', label: 'Audit Logs', icon: FileText, badge: 'Live', badgeColor: '#64748b' },
+              { id: 'docs', label: 'Operations & SOPs', icon: BookOpen, badge: 'Guide', badgeColor: '#0ea5e9' },
             ].map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -728,36 +1572,47 @@ export default function App() {
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id as any)}
+                  title={sidebarCollapsed ? item.label : undefined}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 12px',
+                    justifyContent: sidebarCollapsed ? 'center' : 'space-between',
+                    padding: sidebarCollapsed ? '9px 0' : '9px 10px',
                     borderRadius: '8px',
                     border: 'none',
-                    backgroundColor: isActive ? (isDark ? '#1e293b' : '#2563eb') : 'transparent',
+                    backgroundColor: isActive ? '#2563eb' : 'transparent',
                     color: isActive ? '#ffffff' : c.textMuted,
                     fontWeight: isActive ? 700 : 500,
                     fontSize: '13px',
                     cursor: 'pointer',
                     transition: 'all 0.15s ease',
                     textAlign: 'left',
+                    minWidth: 0,
+                    width: '100%',
+                    boxSizing: 'border-box',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <Icon size={16} color={isActive ? '#60a5fa' : c.textMuted} />
-                    <span>{item.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0, overflow: 'hidden' }}>
+                    <Icon size={16} style={{ flexShrink: 0 }} color={isActive ? '#ffffff' : c.textMuted} />
+                    {!sidebarCollapsed && (
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13px' }}>
+                        {item.label}
+                      </span>
+                    )}
                   </div>
-                  {item.badge && (
+                  {!sidebarCollapsed && item.badge && (
                     <span
                       style={{
-                        backgroundColor: isActive ? (isDark ? '#0f172a' : '#003ea8') : c.surfaceSubtle,
-                        color: item.badgeColor ? item.badgeColor : (isActive ? '#ffffff' : c.textMuted),
-                        fontSize: '10px',
+                        flexShrink: 0,
+                        backgroundColor: isActive ? '#1d4ed8' : c.surfaceSubtle,
+                        color: item.badgeColor ? (isActive ? '#ffffff' : item.badgeColor) : (isActive ? '#ffffff' : c.textMuted),
+                        fontSize: '9.5px',
                         fontWeight: 700,
-                        padding: '2px 6px',
-                        borderRadius: '10px',
-                        border: `1px solid ${c.border}`,
+                        padding: '1.5px 5.5px',
+                        borderRadius: '5px',
+                        border: `1px solid ${isActive ? 'transparent' : c.border}`,
+                        whiteSpace: 'nowrap',
+                        marginLeft: '4px',
                       }}
                     >
                       {item.badge}
@@ -769,30 +1624,90 @@ export default function App() {
           </nav>
         </div>
 
-        {/* Bottom RF Channel Telemetry */}
-        <div
-          style={{
-            backgroundColor: c.surfaceSubtle,
-            border: `1px solid ${c.border}`,
-            borderRadius: '10px',
-            padding: '12px',
-            fontSize: '11px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '6px',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', color: c.textMuted, fontWeight: 600 }}>
-            <span>Mesh RF Channels</span>
-            <span style={{ color: c.accentViolet, fontWeight: 700 }}>CH 11, 26</span>
-          </div>
-          <div style={{ width: '100%', height: '5px', backgroundColor: isDark ? '#334155' : '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
-            <div style={{ width: '84%', height: '100%', backgroundColor: c.accentViolet }}></div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', color: c.textMuted, fontSize: '10px', fontFamily: 'monospace' }}>
-            <span>Gateway Hub v4.19</span>
-            <span style={{ color: c.success, fontWeight: 700 }}>CONNECTED</span>
-          </div>
+        {/* Bottom User Profile & Settings Bar */}
+        <div style={{ marginTop: 'auto', paddingTop: '10px' }}>
+          {sidebarCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setShowSettingsModal(true)}
+              title={`${userName} (${userRole}) - Click to edit settings`}
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                backgroundColor: c.primary,
+                color: '#ffffff',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+                fontSize: '12px',
+                margin: '0 auto',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              }}
+            >
+              {userName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'OP'}
+            </button>
+          ) : (
+            <div
+              onClick={() => setShowSettingsModal(true)}
+              style={{
+                backgroundColor: c.surfaceSubtle,
+                border: `1px solid ${c.border}`,
+                borderRadius: '10px',
+                padding: '9px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              title="Click to view and edit user profile & system settings"
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    width: '30px',
+                    height: '30px',
+                    borderRadius: '50%',
+                    backgroundColor: c.primary,
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 700,
+                    fontSize: '11px',
+                    flexShrink: 0,
+                  }}
+                >
+                  {userName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'OP'}
+                </div>
+                <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {userName}
+                  </div>
+                  <div style={{ fontSize: '10px', color: c.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {userRole}
+                  </div>
+                </div>
+              </div>
+              <div
+                style={{
+                  padding: '4px',
+                  borderRadius: '5px',
+                  color: c.textMuted,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Settings size={14} />
+              </div>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -816,7 +1731,7 @@ export default function App() {
         >
           {/* Organization & Store Switcher */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: c.surfaceSubtle, padding: '6px 12px', borderRadius: '8px', border: `1px solid ${c.border}`, fontSize: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: c.surfaceSubtle, padding: '6px 12px', borderRadius: '8px', border: `1px solid ${c.border}`, fontSize: '12px', whiteSpace: 'nowrap' }}>
               <span style={{ color: c.textMuted }}>Retailer:</span>
               <select
                 value={selectedOrg}
@@ -829,7 +1744,7 @@ export default function App() {
               </select>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: c.surfaceSubtle, padding: '6px 12px', borderRadius: '8px', border: `1px solid ${c.border}`, fontSize: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: c.surfaceSubtle, padding: '6px 12px', borderRadius: '8px', border: `1px solid ${c.border}`, fontSize: '12px', whiteSpace: 'nowrap' }}>
               <Store size={14} color={c.primaryHover} />
               <select
                 value={selectedStoreFilter}
@@ -847,43 +1762,65 @@ export default function App() {
           </div>
 
           {/* Cloud Broker Badge & Quick Actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {/* Azure Broker Badge */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* Highlight Cloud Broker Badge */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                backgroundColor: c.surfaceSubtle,
-                border: `1px solid ${c.border}`,
+                backgroundColor: '#ecfdf5',
+                border: '1px solid #a7f3d0',
                 padding: '5px 12px',
                 borderRadius: '20px',
                 fontSize: '11px',
                 fontFamily: 'monospace',
-                color: c.textMuted,
+                color: '#065f46',
+                whiteSpace: 'nowrap',
               }}
             >
-              <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: c.success }}></span>
-              <span>Azure Central India (Pune) • 0.9s latency</span>
+              <span
+                style={{
+                  width: '7px',
+                  height: '7px',
+                  borderRadius: '50%',
+                  backgroundColor: highlightStatus?.connected ? c.success : c.warning,
+                }}
+              />
+              <span style={{ fontWeight: 700 }}>
+                Highlight Cloud ({highlightStatus?.orgCode || 'CU006INDIA0344'})
+              </span>
+              <span>•</span>
+              <span>{highlightStatus?.apCount ?? 1} AP</span>
+              <span>•</span>
+              <span>{highlightStatus?.deviceCount ?? highlightDevices.length} Tags</span>
             </div>
 
-            {/* Theme Toggle (Stitch Light vs NOC Dark) */}
+            {/* Sync from Highlight Action */}
             <button
-              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              onClick={handleSyncHighlight}
+              disabled={syncingHighlight}
               style={{
-                background: c.surfaceSubtle,
-                border: `1px solid ${c.border}`,
-                color: c.text,
-                padding: '7px',
+                background: syncingHighlight ? c.surfaceSubtle : '#ecfdf5',
+                border: '1px solid #a7f3d0',
+                color: '#065f46',
+                padding: '6px 12px',
                 borderRadius: '8px',
-                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: syncingHighlight ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
+                gap: '6px',
+                whiteSpace: 'nowrap',
               }}
-              title={isDark ? 'Switch to Stitch Light Theme' : 'Switch to NOC Dark Theme'}
+              title="Sync live AP stations, tags, and templates from Highlight Cloud API"
             >
-              {isDark ? <Sun size={15} color="#f59e0b" /> : <Moon size={15} color="#6366f1" />}
+              <RefreshCw
+                size={13}
+                style={{ animation: syncingHighlight ? 'spin 1s linear infinite' : 'none' }}
+              />
+              <span>{syncingHighlight ? 'Syncing...' : 'Sync Highlight'}</span>
             </button>
 
             {/* Live Refresh Button */}
@@ -906,54 +1843,117 @@ export default function App() {
               <RefreshCw size={13} /> Refresh
             </button>
 
-            {/* User Profile */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '6px' }}>
-              <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
-                <div style={{ fontSize: '12px', fontWeight: 700, color: c.text }}>Sumit Sharma</div>
-                <div style={{ fontSize: '10px', color: c.primaryHover, fontWeight: 600 }}>Quickshelf Super Admin</div>
-              </div>
-              <div
+            {/* Activity Notifications Bell */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => {
+                  setShowNotificationCenter((prev) => !prev);
+                  setUnreadNotifications(0);
+                }}
                 style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '50%',
-                  backgroundColor: c.primary,
-                  color: '#ffffff',
+                  position: 'relative',
+                  background: showNotificationCenter ? c.primaryBg : c.surfaceSubtle,
+                  border: `1px solid ${showNotificationCenter ? c.primary : c.border}`,
+                  color: showNotificationCenter ? c.primary : c.text,
+                  padding: '7px 9px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontWeight: 800,
-                  fontSize: '12px',
+                }}
+                title={`Activity & System Notifications (${notificationHistory.length} logged)`}
+              >
+                <Bell size={15} />
+                {unreadNotifications > 0 && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '-4px',
+                      right: '-4px',
+                      backgroundColor: '#dc2626',
+                      color: '#ffffff',
+                      borderRadius: '10px',
+                      padding: '1px 5px',
+                      fontSize: '9px',
+                      fontWeight: 800,
+                      minWidth: '16px',
+                      textAlign: 'center',
+                      boxShadow: '0 0 6px rgba(220, 38, 38, 0.6)',
+                    }}
+                  >
+                    {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* User Profile */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '6px' }}>
+              <div
+                onClick={() => setShowSettingsModal(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+                title="Click to open User Settings & Preferences"
+              >
+                <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: c.text }}>{userName}</div>
+                  <div style={{ fontSize: '10px', color: c.primaryHover, fontWeight: 600 }}>{userRole}</div>
+                </div>
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '50%',
+                    backgroundColor: c.primary,
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 800,
+                    fontSize: '11px',
+                  }}
+                >
+                  {userName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'OP'}
+                </div>
+              </div>
+
+              {/* Sign Out Action Button */}
+              <button
+                type="button"
+                onClick={handleLogout}
+                title="Sign out of QuickShelf"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '6px 10px',
+                  borderRadius: '7px',
+                  backgroundColor: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  color: '#dc2626',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  marginLeft: '4px',
                 }}
               >
-                SS
-              </div>
+                <LogOut size={13} />
+                <span>Sign Out</span>
+              </button>
             </div>
           </div>
         </header>
 
-        {/* Global Action Toast Notification */}
-        {actionMessage && (
-          <div
-            style={{
-              margin: '16px 28px 0',
-              padding: '10px 18px',
-              backgroundColor: '#1e3a8a',
-              color: '#93c5fd',
-              borderRadius: '8px',
-              border: '1px solid #3b82f6',
-              fontSize: '13px',
-              fontWeight: 600,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              boxShadow: '0 4px 12px rgba(30, 58, 138, 0.4)',
-            }}
-          >
-            <Zap size={16} color="#60a5fa" />
-            <span>{actionMessage}</span>
-          </div>
-        )}
+        {/* Floating Toast Notification Stack */}
+        <NotificationToastContainer toasts={activeToasts} onDismiss={dismissToast} />
+
+        {/* Activity & Notification History Slide-over Drawer */}
+        <NotificationHistoryDrawer
+          isOpen={showNotificationCenter}
+          onClose={() => setShowNotificationCenter(false)}
+          notifications={notificationHistory}
+          onClearAll={() => setNotificationHistory([])}
+        />
 
         {/* Workspace Body */}
         <main style={{ padding: '24px 28px', flex: 1, display: 'flex', flexDirection: 'column', gap: '22px' }}>
@@ -962,156 +1962,171 @@ export default function App() {
           ========================================================================== */}
           {activeTab === 'fleet' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {/* Top 5 KPI Summary Strip (from Stitch) */}
+              {/* Top 5 KPI Summary Strip */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
                 {/* Active Stores */}
                 <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: c.textMuted, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
-                    <span>Active Stores</span>
+                    <span>Store Locations</span>
                     <Store size={15} color={c.primaryHover} />
                   </div>
-                  <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: c.text }}>
-                    {stores.length || 28} <span style={{ fontSize: '13px', color: c.textMuted, fontWeight: 500 }}>/ 30 network</span>
+                  <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '6px', color: c.text }}>
+                    {stores.length > 0 ? stores.length : 1} <span style={{ fontSize: '12px', color: c.textMuted, fontWeight: 500 }}>locations</span>
                   </div>
-                  <div style={{ fontSize: '11px', color: c.success, marginTop: '4px', fontWeight: 600 }}>
-                    ● 2 Stores in Onboarding
+                  <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '4px' }}>
+                    Configured retail planograms
                   </div>
                 </div>
 
                 {/* ESL Fleet Seen < 24h */}
                 <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: c.textMuted, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
-                    <span>ESL Fleet Seen &lt;24h</span>
+                    <span>Fleet Convergence</span>
                     <TagIcon size={15} color={c.success} />
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '6px' }}>
-                    <div style={{ fontSize: '28px', fontWeight: 800, color: c.text }}>
-                      {fleet ? `${fleet.convergencePct.toFixed(1)}%` : '99.5%'}
-                    </div>
-                    {/* SVG Sparkline */}
-                    <svg width="60" height="24" viewBox="0 0 60 24" style={{ overflow: 'visible' }}>
-                      <path d="M0 20 L10 16 L20 22 L30 10 L40 12 L50 4 L60 6" fill="none" stroke={c.success} strokeWidth="2" strokeLinecap="round" />
-                    </svg>
+                  <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '6px', color: c.text }}>
+                    {fleet ? `${fleet.convergencePct.toFixed(1)}%` : '100.0%'}
                   </div>
-                  <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '4px' }}>
-                    {fleet ? fleet.totalTags : '72,480'} online • 0 packet drops
+                  <div style={{ fontSize: '11px', color: fleet && fleet.divergedTags > 0 ? c.warning : c.success, marginTop: '4px', fontWeight: 600 }}>
+                    {fleet && fleet.divergedTags > 0
+                      ? `${fleet.divergedTags} labels updating over radio`
+                      : `${fleet ? fleet.totalTags : tags.length} labels in sync`}
                   </div>
                 </div>
 
                 {/* Sub-GHz Ceiling APs */}
                 <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: c.textMuted, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
-                    <span>Sub-GHz Gateways</span>
+                    <span>Sub-GHz Base Stations</span>
                     <Radio size={15} color={c.accentViolet} />
                   </div>
-                  <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: c.text }}>
-                    {gateways.length || 88} <span style={{ fontSize: '13px', color: c.textMuted, fontWeight: 500 }}>/ 90 APs</span>
+                  <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '6px', color: c.text }}>
+                    {gateways.length > 0 ? gateways.length : (highlightStatus?.apCount ?? 1)} <span style={{ fontSize: '12px', color: c.textMuted, fontWeight: 500 }}>APs online</span>
                   </div>
-                  <div style={{ fontSize: '11px', color: c.accentViolet, marginTop: '4px', fontWeight: 600 }}>
-                    Avg Ping: 34ms • Token Bucket Active
+                  <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '4px' }}>
+                    865 - 868 MHz license-free ISM
                   </div>
                 </div>
 
                 {/* POS Price Integrity */}
                 <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: c.textMuted, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
-                    <span>POS Price Integrity</span>
+                    <span>Price Integrity (PRC-04)</span>
                     <ShieldCheck size={15} color={c.success} />
                   </div>
-                  <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: c.text }}>
-                    99.94%
+                  <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '6px', color: c.success }}>
+                    100.0%
                   </div>
                   <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '4px' }}>
-                    Daily integrity check: 05:00 IST • 0 drift
+                    Selling price &le; MRP guardrails active
                   </div>
                 </div>
 
-                {/* Active Incidents */}
+                {/* Network Health */}
                 <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: c.textMuted, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
-                    <span>Active Incidents</span>
-                    <AlertCircle size={15} color={c.error} />
+                    <span>Network Health</span>
+                    <CheckCircle2 size={15} color={c.success} />
                   </div>
-                  <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: c.error }}>
-                    1 <span style={{ fontSize: '13px', color: c.textMuted, fontWeight: 500 }}>Critical Rollup</span>
+                  <div style={{ fontSize: '20px', fontWeight: 800, marginTop: '8px', color: c.text }}>
+                    {fleet && fleet.divergedTags > 0 ? 'Updating Radio' : 'All Nominal'}
                   </div>
-                  <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '4px' }}>
-                    MTTR: 8m 40s • SLA 99.9% Met
+                  <div style={{ fontSize: '11px', color: c.success, marginTop: '4px', fontWeight: 600 }}>
+                    0 packet drops • MTTR &lt; 10s
                   </div>
                 </div>
               </div>
 
-              {/* SOW ALR-01: Incident Grouping Banner (Alert Fatigue Elimination) */}
-              {!incidentDismissed && (
-                <div
-                  style={{
-                    backgroundColor: isDark ? 'rgba(186, 26, 26, 0.12)' : '#fef2f2',
-                    border: '1px solid #fca5a5',
-                    borderLeft: '5px solid #dc2626',
-                    borderRadius: '10px',
-                    padding: '14px 18px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '12px',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                    <div style={{ backgroundColor: '#dc2626', color: '#ffffff', padding: '6px', borderRadius: '8px' }}>
-                      <AlertTriangle size={18} />
-                    </div>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ backgroundColor: '#dc2626', color: '#ffffff', fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>
-                          P1 Critical Rollup
-                        </span>
-                        <span style={{ fontWeight: 800, fontSize: '14px', color: isDark ? '#fca5a5' : '#991b1b' }}>
-                          Store #104 (Andheri West MegaMart)
-                        </span>
-                      </div>
-                      <p style={{ margin: '3px 0 0', fontSize: '12px', color: isDark ? '#f87171' : '#7f1d1d' }}>
-                        Probable root cause: <strong>Gateway GW-09 power interruption</strong>. 142 ESLs unreachable in Aisle 4B. Grouped to eliminate alert fatigue (SOW ALR-01).
-                      </p>
-                    </div>
+              {/* Operational Status & Guidance Banner */}
+              <div
+                style={{
+                  backgroundColor: '#ecfdf5',
+                  border: '1px solid #a7f3d0',
+                  borderRadius: '10px',
+                  padding: '14px 18px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ backgroundColor: c.success, color: '#ffffff', padding: '6px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <CheckCircle2 size={18} />
                   </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                      onClick={() => {
-                        showToast('Rebooting Gateway GW-09 remotely over MQTT...');
-                        setIncidentDismissed(true);
-                      }}
-                      style={{
-                        backgroundColor: '#dc2626',
-                        color: '#ffffff',
-                        border: 'none',
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Reboot Gateway GW-09
-                    </button>
-                    <button
-                      onClick={() => setIncidentDismissed(true)}
-                      style={{
-                        backgroundColor: 'transparent',
-                        border: '1px solid #fca5a5',
-                        color: isDark ? '#fca5a5' : '#991b1b',
-                        padding: '6px 10px',
-                        borderRadius: '6px',
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Acknowledge
-                    </button>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 800, fontSize: '14px', color: '#065f46', whiteSpace: 'nowrap' }}>
+                        Fleet Link Operational
+                      </span>
+                      <span style={{ backgroundColor: '#d1fae5', color: '#047857', fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+                        HEALTHY
+                      </span>
+                    </div>
+                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#065f46' }}>
+                      All Sub-GHz AP base stations are connected. Physical electronic shelf labels are listening on RF channel 11.
+                    </p>
                   </div>
                 </div>
-              )}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    onClick={() => setActiveTab('highlight')}
+                    style={{
+                      backgroundColor: '#ffffff',
+                      color: c.text,
+                      border: `1px solid ${c.border}`,
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    View Highlight IoT Fleet
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('docs')}
+                    style={{
+                      backgroundColor: 'transparent',
+                      color: c.primaryHover,
+                      border: 'none',
+                      padding: '6px 10px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <BookOpen size={13} /> Operations Guide
+                  </button>
+                </div>
+              </div>
+
+              {/* Self-Explanatory Assistant Phrase */}
+              <div
+                style={{
+                  backgroundColor: c.surfaceSubtle,
+                  border: `1px solid ${c.border}`,
+                  borderRadius: '8px',
+                  padding: '10px 14px',
+                  fontSize: '12px',
+                  color: c.textMuted,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <Info size={16} color={c.primary} style={{ flexShrink: 0 }} />
+                <span>
+                  <strong>Tip:</strong> Search products below by SKU or product name. Click <strong>Quick Price</strong> on any tag to push an over-the-air price update to the shelf, or click <strong>Locate</strong> to flash the tag's LED beacon.
+                </span>
+              </div>
 
               {/* Filter Toolbar & View Switcher */}
               <div
@@ -1270,16 +2285,20 @@ export default function App() {
                         <div>
                           {/* Hardware Header Strip */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed #cbd5e1', paddingBottom: '6px', fontSize: '11px', fontWeight: 800, color: '#475569', fontFamily: 'monospace' }}>
-                            <span>{tag.hardwareId} • {tag.size}</span>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              <span style={{ color: tag.batteryPct < 20 ? '#dc2626' : '#16a34a' }}>🔋 {tag.batteryPct}%</span>
-                              <span style={{ color: '#6366f1' }}>📶 {tag.rssi}dBm</span>
+                            <span style={{ whiteSpace: 'nowrap' }}>{tag.hardwareId} • {tag.size}</span>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', whiteSpace: 'nowrap' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', color: tag.batteryPct < 20 ? '#dc2626' : '#16a34a' }}>
+                                <Battery size={12} /> {tag.batteryPct}%
+                              </span>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', color: '#6366f1' }}>
+                                <Wifi size={12} /> {tag.rssi}dBm
+                              </span>
                             </div>
                           </div>
 
                           {/* Promo Badge */}
                           {sku?.promoBadge ? (
-                            <div style={{ backgroundColor: '#111827', color: '#ffffff', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', display: 'inline-block', marginTop: '8px' }}>
+                            <div style={{ backgroundColor: '#111827', color: '#ffffff', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', display: 'inline-block', marginTop: '8px', whiteSpace: 'nowrap' }}>
                               {sku.promoBadge}
                             </div>
                           ) : (
@@ -1293,17 +2312,17 @@ export default function App() {
 
                           {/* Price & MRP */}
                           {sku ? (
-                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                              <span style={{ fontSize: '26px', fontWeight: 900, color: '#090d16', letterSpacing: '-0.5px' }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '26px', fontWeight: 900, color: '#090d16', letterSpacing: '-0.5px', whiteSpace: 'nowrap' }}>
                                 ₹{formatRupees(sku.priceMinor)}
                               </span>
                               {sku.mrpMinor > sku.priceMinor && (
-                                <span style={{ fontSize: '13px', color: '#94a3b8', textDecoration: 'line-through' }}>
+                                <span style={{ fontSize: '13px', color: '#94a3b8', textDecoration: 'line-through', whiteSpace: 'nowrap' }}>
                                   ₹{formatRupees(sku.mrpMinor)}
                                 </span>
                               )}
                               {sku.mrpMinor > sku.priceMinor && (
-                                <span style={{ backgroundColor: '#fef08a', color: '#854d0e', padding: '1px 5px', borderRadius: '3px', fontSize: '10px', fontWeight: 800 }}>
+                                <span style={{ backgroundColor: '#fef08a', color: '#854d0e', padding: '1px 5px', borderRadius: '3px', fontSize: '10px', fontWeight: 800, whiteSpace: 'nowrap' }}>
                                   {Math.round(((sku.mrpMinor - sku.priceMinor) / sku.mrpMinor) * 100)}% OFF
                                 </span>
                               )}
@@ -1326,14 +2345,14 @@ export default function App() {
                           ></div>
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', fontWeight: 600 }}>
-                            <span style={{ color: '#64748b' }}>AP: {tag.gatewayHardwareId}</span>
+                            <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>AP: {tag.gatewayHardwareId}</span>
                             {tag.isDiverged ? (
-                              <span style={{ backgroundColor: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: '10px', fontWeight: 800 }}>
-                                ⚡ Syncing v{tag.reportedVersion}→v{tag.desiredVersion}
+                              <span style={{ backgroundColor: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: '10px', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                                Syncing v{tag.reportedVersion} -&gt; v{tag.desiredVersion}
                               </span>
                             ) : (
-                              <span style={{ color: '#16a34a', fontWeight: 700 }}>
-                                ✓ In Sync (v{tag.reportedVersion})
+                              <span style={{ color: '#16a34a', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }}>
+                                <Check size={11} strokeWidth={3} /> In Sync (v{tag.reportedVersion})
                               </span>
                             )}
                           </div>
@@ -1354,41 +2373,43 @@ export default function App() {
                               onClick={(e) => handleOpenQuickPriceModal(tag, e)}
                               style={{
                                 flex: 1,
-                                backgroundColor: '#0284c7',
+                                backgroundColor: '#2563eb',
                                 color: '#ffffff',
                                 border: 'none',
                                 borderRadius: '4px',
-                                padding: '5px 6px',
+                                padding: '6px 8px',
                                 fontSize: '11px',
                                 fontWeight: 700,
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                gap: '3px',
+                                gap: '4px',
+                                whiteSpace: 'nowrap',
                               }}
                             >
-                              ⚡ Update Price
+                              <DollarSign size={12} /> Update Price
                             </button>
                             <button
                               onClick={(e) => handleLocateTag(tag.hardwareId, tag.gatewayHardwareId, e)}
                               style={{
                                 flex: 1,
-                                backgroundColor: blinkingTagIds.has(tag.hardwareId) ? '#f59e0b' : '#f1f5f9',
-                                color: blinkingTagIds.has(tag.hardwareId) ? '#ffffff' : '#0f172a',
+                                backgroundColor: blinkingTagIds.has(tag.hardwareId) ? '#fef3c7' : '#f1f5f9',
+                                color: blinkingTagIds.has(tag.hardwareId) ? '#b45309' : '#0f172a',
                                 border: '1px solid #cbd5e1',
                                 borderRadius: '4px',
-                                padding: '5px 6px',
+                                padding: '6px 8px',
                                 fontSize: '11px',
                                 fontWeight: 700,
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                gap: '3px',
+                                gap: '4px',
+                                whiteSpace: 'nowrap',
                               }}
                             >
-                              {blinkingTagIds.has(tag.hardwareId) ? '✨ Blinking...' : '📍 Locate (10s)'}
+                              <Zap size={12} fill={blinkingTagIds.has(tag.hardwareId) ? '#16a34a' : 'none'} color={blinkingTagIds.has(tag.hardwareId) ? '#16a34a' : '#64748b'} /> {blinkingTagIds.has(tag.hardwareId) ? 'Stop LED' : 'Flash LED'}
                             </button>
                           </div>
                         </div>
@@ -1402,21 +2423,21 @@ export default function App() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
                     <thead>
                       <tr style={{ backgroundColor: c.surfaceSubtle, color: c.textMuted, borderBottom: `1px solid ${c.border}` }}>
-                        <th style={{ padding: '10px 12px' }}>HARDWARE ID</th>
-                        <th style={{ padding: '10px 12px' }}>PRODUCT SKU</th>
-                        <th style={{ padding: '10px 12px' }}>STORE & AP</th>
-                        <th style={{ padding: '10px 12px' }}>PRICE / MRP</th>
-                        <th style={{ padding: '10px 12px' }}>BATTERY</th>
-                        <th style={{ padding: '10px 12px' }}>SIGNAL (BLE)</th>
-                        <th style={{ padding: '10px 12px' }}>VERSION</th>
-                        <th style={{ padding: '10px 12px' }}>STATUS</th>
-                        <th style={{ padding: '10px 12px', textAlign: 'right' }}>ACTION</th>
+                        <th style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>HARDWARE ID</th>
+                        <th style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>PRODUCT SKU</th>
+                        <th style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>STORE & AP</th>
+                        <th style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>PRICE / MRP</th>
+                        <th style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>BATTERY</th>
+                        <th style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>SIGNAL (BLE)</th>
+                        <th style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>VERSION</th>
+                        <th style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>STATUS</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>ACTION</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredTags.map((tag) => (
                         <tr key={tag.id} style={{ borderBottom: `1px solid ${c.border}`, cursor: 'pointer' }} onClick={() => setInspectTagId(tag.id)}>
-                          <td style={{ padding: '10px 12px', fontWeight: 700, fontFamily: 'monospace', color: c.text }}>
+                          <td style={{ padding: '10px 12px', fontWeight: 700, fontFamily: 'monospace', color: c.text, whiteSpace: 'nowrap' }}>
                             {tag.hardwareId} <span style={{ fontSize: '10px', color: c.textMuted }}>({tag.size})</span>
                           </td>
                           <td style={{ padding: '10px 12px' }}>
@@ -1429,26 +2450,26 @@ export default function App() {
                               <span style={{ color: c.textMuted, fontStyle: 'italic' }}>Unpaired</span>
                             )}
                           </td>
-                          <td style={{ padding: '10px 12px', color: c.textMuted }}>
+                          <td style={{ padding: '10px 12px', color: c.textMuted, whiteSpace: 'nowrap' }}>
                             {tag.storeName} <span style={{ fontSize: '10px' }}>(AP: {tag.gatewayHardwareId})</span>
                           </td>
-                          <td style={{ padding: '10px 12px' }}>
+                          <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                             {tag.sku ? (
                               <span style={{ fontWeight: 800, color: c.success }}>
                                 ₹{formatRupees(tag.sku.priceMinor)}
                               </span>
                             ) : '-'}
                           </td>
-                          <td style={{ padding: '10px 12px', fontWeight: 700, color: tag.batteryPct < 20 ? c.error : c.success }}>
+                          <td style={{ padding: '10px 12px', fontWeight: 700, color: tag.batteryPct < 20 ? c.error : c.success, whiteSpace: 'nowrap' }}>
                             {tag.batteryPct}%
                           </td>
-                          <td style={{ padding: '10px 12px', color: c.accentViolet, fontFamily: 'monospace' }}>
+                          <td style={{ padding: '10px 12px', color: c.accentViolet, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                             {tag.rssi} dBm
                           </td>
-                          <td style={{ padding: '10px 12px', fontFamily: 'monospace' }}>
+                          <td style={{ padding: '10px 12px', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                             v{tag.reportedVersion} / <span style={{ color: tag.isDiverged ? c.warning : c.success, fontWeight: 700 }}>v{tag.desiredVersion}</span>
                           </td>
-                          <td style={{ padding: '10px 12px' }}>
+                          <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                             {tag.isDiverged ? (
                               <span style={{ backgroundColor: 'rgba(217,119,6,0.15)', color: c.warning, padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 800 }}>
                                 Syncing (+{tag.divergenceDelta})
@@ -1459,23 +2480,37 @@ export default function App() {
                               </span>
                             )}
                           </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                             <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
                               <button
                                 onClick={(e) => handleOpenQuickPriceModal(tag, e)}
-                                style={{ backgroundColor: c.surfaceSubtle, color: c.primaryHover, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                                style={{ backgroundColor: c.surfaceSubtle, color: c.primaryHover, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
                               >
-                                ⚡ Price
+                                Price
                               </button>
                               <button
                                 onClick={(e) => handleLocateTag(tag.hardwareId, tag.gatewayHardwareId, e)}
-                                style={{ backgroundColor: blinkingTagIds.has(tag.hardwareId) ? '#fef3c7' : c.surfaceSubtle, color: blinkingTagIds.has(tag.hardwareId) ? '#b45309' : c.text, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                                style={{
+                                  backgroundColor: blinkingTagIds.has(tag.hardwareId) ? '#dcfce7' : c.surfaceSubtle,
+                                  color: blinkingTagIds.has(tag.hardwareId) ? '#15803d' : c.text,
+                                  border: `1px solid ${blinkingTagIds.has(tag.hardwareId) ? '#86efac' : c.border}`,
+                                  borderRadius: '4px',
+                                  padding: '3px 8px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                }}
                               >
-                                {blinkingTagIds.has(tag.hardwareId) ? '✨ Blinking' : '📍 Locate'}
+                                <Zap size={11} fill={blinkingTagIds.has(tag.hardwareId) ? '#16a34a' : 'none'} color={blinkingTagIds.has(tag.hardwareId) ? '#16a34a' : '#64748b'} />
+                                <span>{blinkingTagIds.has(tag.hardwareId) ? 'Stop' : 'Flash'}</span>
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); setInspectTagId(tag.id); }}
-                                style={{ backgroundColor: c.surfaceSubtle, color: c.textMuted, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                style={{ backgroundColor: c.surfaceSubtle, color: c.textMuted, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
                               >
                                 Inspect
                               </button>
@@ -1491,10 +2526,26 @@ export default function App() {
           )}
 
           {/* =========================================================================
-              MODULE 2: STORE LIFECYCLE & ONBOARDING HUB (SOW §5, ONB-01, STR-03)
+              MODULE: HIGHLIGHT IOT CLOUD HARDWARE FLEET
           ========================================================================== */}
-          {activeTab === 'onboarding' && (
-            <StoreOnboardingStudio theme={theme} apiBase={API_BASE} />
+          {activeTab === 'highlight' && (
+            <HighlightFleetView
+              highlightStatus={highlightStatus}
+              highlightDevices={highlightDevices}
+              highlightTemplates={highlightTemplates}
+              highlightProducts={highlightProducts}
+              syncingHighlight={syncingHighlight}
+              onSyncHighlight={handleSyncHighlight}
+              onLocateDevice={handleLocateHighlightDevice}
+              onFlashDevice={handleFlashHighlightDevice}
+              onStopFlashDevice={handleStopFlashHighlightDevice}
+              onOpenOtaModal={handleOpenHighlightOtaModal}
+              onOpenPairModal={handleOpenPairModal}
+              onUnbindDevice={handleOpenUnbindModal}
+              onOpenCsvModal={handleOpenCsvModal}
+              onRenameDevice={handleRenameDevice}
+              blinkingTagIds={blinkingTagIds}
+            />
           )}
 
           {/* =========================================================================
@@ -1518,13 +2569,13 @@ export default function App() {
                   </button>
                   <button
                     onClick={handleResetPrices}
-                    style={{ backgroundColor: c.surfaceSubtle, color: c.text, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                    style={{ backgroundColor: c.surfaceSubtle, color: c.text, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}
                   >
-                    ↺ Reset to MRP
+                    <RotateCcw size={13} /> Reset to MRP
                   </button>
                   <button
                     onClick={() => setShowAddSkuModal(true)}
-                    style={{ backgroundColor: c.primary, color: '#ffffff', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                    style={{ backgroundColor: c.primary, color: '#ffffff', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
                   >
                     + Add New SKU
                   </button>
@@ -1540,7 +2591,7 @@ export default function App() {
                   </div>
                   <button
                     onClick={handleResetPrices}
-                    style={{ backgroundColor: isDark ? '#7f1d1d' : '#fef2f2', color: c.error, border: '1px solid #fca5a5', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                    style={{ backgroundColor: '#fef2f2', color: c.error, border: '1px solid #fca5a5', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
                   >
                     1-Click Rollback (PRC-07)
                   </button>
@@ -1556,64 +2607,204 @@ export default function App() {
                 </div>
               </div>
 
-              {/* SKU Catalog Table */}
-              <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '10px', overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: c.surfaceSubtle, color: c.textMuted, borderBottom: `1px solid ${c.border}` }}>
-                      <th style={{ padding: '10px 12px' }}>SKU CODE</th>
-                      <th style={{ padding: '10px 12px' }}>PRODUCT TITLE</th>
-                      <th style={{ padding: '10px 12px' }}>PRICE (₹)</th>
-                      <th style={{ padding: '10px 12px' }}>MRP (₹)</th>
-                      <th style={{ padding: '10px 12px' }}>DISCOUNT</th>
-                      <th style={{ padding: '10px 12px' }}>PROMO BADGE</th>
-                      <th style={{ padding: '10px 12px' }}>LABELS</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>ACTION</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {skus.map((sku) => {
-                      const discountPct = sku.mrpMinor > sku.priceMinor ? Math.round(((sku.mrpMinor - sku.priceMinor) / sku.mrpMinor) * 100) : 0;
-                      return (
-                        <tr key={sku.id} style={{ borderBottom: `1px solid ${c.border}` }}>
-                          <td style={{ padding: '10px 12px', fontWeight: 700, fontFamily: 'monospace', color: c.primaryHover }}>{sku.code}</td>
-                          <td style={{ padding: '10px 12px', fontWeight: 600, color: c.text }}>{sku.name}</td>
-                          <td style={{ padding: '10px 12px', fontWeight: 800, color: c.success, fontSize: '14px' }}>₹{formatRupees(sku.priceMinor)}</td>
-                          <td style={{ padding: '10px 12px', color: c.textMuted }}>₹{formatRupees(sku.mrpMinor)}</td>
-                          <td style={{ padding: '10px 12px' }}>
-                            {discountPct > 0 ? (
-                              <span style={{ backgroundColor: 'rgba(217, 119, 6, 0.15)', color: c.warning, padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 800 }}>
-                                {discountPct}% OFF
-                              </span>
-                            ) : (
-                              <span style={{ color: c.textMuted }}>Standard</span>
-                            )}
-                          </td>
-                          <td style={{ padding: '10px 12px' }}>
-                            {sku.promoBadge ? (
-                              <span style={{ backgroundColor: c.surfaceSubtle, color: c.warning, padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, border: `1px solid ${c.border}` }}>
-                                {sku.promoBadge}
-                              </span>
-                            ) : (
-                              <span style={{ color: c.textMuted }}>None</span>
-                            )}
-                          </td>
-                          <td style={{ padding: '10px 12px', fontWeight: 700, color: c.text }}>{sku.tagCount ?? 1}</td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                            <button
-                              onClick={() => setShowEditSkuModal(sku)}
-                              style={{ backgroundColor: c.surfaceSubtle, color: c.primaryHover, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+              {/* Highlight Cloud Catalog & SKU Pricing */}
+              <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '10px', overflow: 'hidden' }}>
+                <div style={{ padding: '12px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Package size={16} color={c.primary} />
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: c.text }}>
+                      Highlight Cloud Catalog ({highlightProducts.length > 0 ? highlightProducts.length : skus.length} Live Items)
+                    </span>
+                    <span style={{ fontSize: '11px', color: c.textMuted, backgroundColor: c.surfaceSubtle, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${c.border}` }}>
+                      Org: CU006INDIA0344:483
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      onClick={fetchHighlightData}
+                      disabled={syncingHighlight}
+                      style={{
+                        backgroundColor: c.surfaceSubtle,
+                        color: c.text,
+                        border: `1px solid ${c.border}`,
+                        borderRadius: '6px',
+                        padding: '5px 10px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <RefreshCw size={12} style={{ animation: syncingHighlight ? 'spin 1s linear infinite' : 'none' }} />
+                      <span>Refresh Catalog</span>
+                    </button>
+                    <button
+                      onClick={handleOpenCsvModal}
+                      style={{
+                        backgroundColor: c.surfaceSubtle,
+                        color: c.text,
+                        border: `1px solid ${c.border}`,
+                        borderRadius: '6px',
+                        padding: '5px 10px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <FileSpreadsheet size={12} color={c.primary} />
+                      <span>Batch CSV / Excel</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: c.surfaceSubtle, color: c.textMuted, borderBottom: `1px solid ${c.border}` }}>
+                        <th style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>SKU CODE</th>
+                        <th style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>COMMODITY TITLE</th>
+                        <th style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>SELLING PRICE (₹)</th>
+                        <th style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>MRP (₹)</th>
+                        <th style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>DISCOUNT</th>
+                        <th style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>PROMOTIONAL CAMPAIGN</th>
+                        <th style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>PAIRED HARDWARE TAG</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>ACTION</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {highlightProducts.length > 0 ? (
+                        highlightProducts.map((p) => {
+                          const priceNum = typeof p.price === 'number' ? p.price : parseFloat(String(p.price)) || 0;
+                          const mrpMatch = p.custFeature2?.match(/\d+(\.\d+)?/);
+                          const mrpNum = mrpMatch ? parseFloat(mrpMatch[0]) : priceNum;
+                          const discountPct = mrpNum > priceNum ? Math.round(((mrpNum - priceNum) / mrpNum) * 100) : 0;
+                          const promoBadge = p.custFeature3?.replace(/^PROMO:\s*/i, '') || p.copyWriting;
+                          const pairedDev = highlightDevices.find((d) => d.skuCode === p.uniqueId);
+
+                          return (
+                            <tr
+                              key={p.uniqueId}
+                              style={{ borderBottom: `1px solid ${c.border}`, transition: 'background-color 0.15s ease' }}
+                              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = c.surfaceSubtle)}
+                              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                             >
-                              Edit Price
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                              <td style={{ padding: '10px 14px', fontWeight: 700, fontFamily: 'monospace', color: c.primaryHover, whiteSpace: 'nowrap' }}>
+                                {p.uniqueId}
+                              </td>
+                              <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 600, color: c.text }}>{p.prodName}</div>
+                                {p.custFeature1 && (
+                                  <div style={{ fontSize: '11px', color: c.textMuted }}>{p.custFeature1}</div>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px', fontWeight: 800, color: c.success, fontSize: '14px', whiteSpace: 'nowrap' }}>
+                                ₹{priceNum.toFixed(2)}
+                              </td>
+                              <td style={{ padding: '10px 14px', color: c.textMuted, whiteSpace: 'nowrap' }}>
+                                ₹{mrpNum.toFixed(2)}
+                              </td>
+                              <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                                {discountPct > 0 ? (
+                                  <span style={{ backgroundColor: 'rgba(217, 119, 6, 0.15)', color: c.warning, padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 800 }}>
+                                    {discountPct}% OFF
+                                  </span>
+                                ) : (
+                                  <span style={{ color: c.textMuted }}>Standard</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                                {promoBadge ? (
+                                  <span style={{ backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #ffedd5', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600 }}>
+                                    {promoBadge}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: c.textMuted }}>None</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                                {pairedDev ? (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: c.text, fontWeight: 600, fontFamily: 'monospace' }}>
+                                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: c.success }}></span>
+                                    <span>{pairedDev.deviceNumber}</span>
+                                  </span>
+                                ) : (
+                                  <span style={{ color: c.textMuted, fontSize: '11px' }}>Unassigned</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                {pairedDev ? (
+                                  <button
+                                    onClick={() => handleOpenHighlightOtaModal(pairedDev)}
+                                    style={{ backgroundColor: c.primary, color: '#ffffff', border: 'none', borderRadius: '4px', padding: '5px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
+                                  >
+                                    <Zap size={11} />
+                                    <span>Push OTA</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setActiveTab('highlight');
+                                      handleOpenPairModal(undefined, p);
+                                    }}
+                                    style={{ backgroundColor: c.surfaceSubtle, color: c.primaryHover, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '5px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  >
+                                    <Link2 size={11} />
+                                    <span>Pair Tag</span>
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        skus.map((sku) => {
+                          const discountPct = sku.mrpMinor > sku.priceMinor ? Math.round(((sku.mrpMinor - sku.priceMinor) / sku.mrpMinor) * 100) : 0;
+                          return (
+                            <tr key={sku.id} style={{ borderBottom: `1px solid ${c.border}` }}>
+                              <td style={{ padding: '10px 14px', fontWeight: 700, fontFamily: 'monospace', color: c.primaryHover }}>{sku.code}</td>
+                              <td style={{ padding: '10px 14px', fontWeight: 600, color: c.text }}>{sku.name}</td>
+                              <td style={{ padding: '10px 14px', fontWeight: 800, color: c.success, fontSize: '14px' }}>₹{formatRupees(sku.priceMinor)}</td>
+                              <td style={{ padding: '10px 14px', color: c.textMuted }}>₹{formatRupees(sku.mrpMinor)}</td>
+                              <td style={{ padding: '10px 14px' }}>
+                                {discountPct > 0 ? (
+                                  <span style={{ backgroundColor: 'rgba(217, 119, 6, 0.15)', color: c.warning, padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 800 }}>
+                                    {discountPct}% OFF
+                                  </span>
+                                ) : (
+                                  <span style={{ color: c.textMuted }}>Standard</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px' }}>
+                                {sku.promoBadge ? (
+                                  <span style={{ backgroundColor: c.surfaceSubtle, color: c.warning, padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, border: `1px solid ${c.border}` }}>
+                                    {sku.promoBadge}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: c.textMuted }}>None</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px', fontWeight: 700, color: c.text }}>{sku.tagCount ?? 1}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                                <button
+                                  onClick={() => setShowEditSkuModal(sku)}
+                                  style={{ backgroundColor: c.surfaceSubtle, color: c.primaryHover, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                >
+                                  Edit Price
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>            </div>
           )}
 
           {/* =========================================================================
@@ -1766,34 +2957,37 @@ export default function App() {
                   <button
                     onClick={async () => {
                       showToast('Running Hard Problem 2: Rapid Burst Collapse Test...');
-                      await fetch(`${API_BASE}/api/chaos/burst-collapse-test`, { method: 'POST' });
+                      await apiFetch(`${API_BASE}/api/chaos/burst-collapse-test`, { method: 'POST' });
                       fetchData();
                     }}
-                    style={{ backgroundColor: isDark ? '#4c1d95' : '#ede9fe', color: isDark ? '#ddd6fe' : '#5b21b6', border: `1px solid ${c.border}`, borderRadius: '6px', padding: '8px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
+                    style={{ backgroundColor: '#ede9fe', color: '#5b21b6', border: `1px solid ${c.border}`, borderRadius: '6px', padding: '8px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
                   >
-                    ⚡ Test Burst & Collapse (HP 2)
+                    <Zap size={14} color="#7c3aed" />
+                    <span>Test Burst &amp; Collapse (HP 2)</span>
                   </button>
 
                   <button
                     onClick={async () => {
                       showToast('Running Hard Problem 3: Battery-Aware Hash Skip...');
-                      await fetch(`${API_BASE}/api/chaos/hash-skip-test`, { method: 'POST' });
+                      await apiFetch(`${API_BASE}/api/chaos/hash-skip-test`, { method: 'POST' });
                       fetchData();
                     }}
-                    style={{ backgroundColor: isDark ? '#0369a1' : '#e0f2fe', color: isDark ? '#bae6fd' : '#0369a1', border: `1px solid ${c.border}`, borderRadius: '6px', padding: '8px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
+                    style={{ backgroundColor: '#e0f2fe', color: '#0369a1', border: `1px solid ${c.border}`, borderRadius: '6px', padding: '8px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
                   >
-                    🔋 Test Battery Hash Skip (HP 3)
+                    <Battery size={14} color="#0284c7" />
+                    <span>Test Battery Hash Skip (HP 3)</span>
                   </button>
 
                   <button
                     onClick={async () => {
                       showToast('Injecting 12% low battery safety NACK...');
-                      await fetch(`${API_BASE}/api/chaos/inject-fault`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tagId: 'tag-001', faultType: 'LOW_BATTERY' }) });
+                      await apiFetch(`${API_BASE}/api/chaos/inject-fault`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tagId: 'tag-001', faultType: 'LOW_BATTERY' }) });
                       fetchData();
                     }}
-                    style={{ backgroundColor: isDark ? '#7f1d1d' : '#fee2e2', color: isDark ? '#fca5a5' : '#991b1b', border: `1px solid ${c.border}`, borderRadius: '6px', padding: '8px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
+                    style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: `1px solid ${c.border}`, borderRadius: '6px', padding: '8px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
                   >
-                    ⚠️ Test Low Battery Guard (HP 7)
+                    <ShieldAlert size={14} color="#dc2626" />
+                    <span>Test Low Battery Guard (HP 7)</span>
                   </button>
                 </div>
               </div>
@@ -1843,6 +3037,13 @@ export default function App() {
                 </table>
               </div>
             </div>
+          )}
+
+          {/* =========================================================================
+              MODULE 6: OPERATIONS GUIDE & CUSTOMER DOCUMENTATION
+          ========================================================================== */}
+          {activeTab === 'docs' && (
+            <DocumentationView highlightDevices={highlightDevices} />
           )}
         </main>
       </div>
@@ -1901,21 +3102,21 @@ export default function App() {
                 {/* 1. E-Paper Display Preview */}
                 <div style={{ backgroundColor: '#fdfbf7', color: '#111827', borderRadius: '10px', padding: '16px', border: '1px solid #cbd5e1' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 800, color: '#475569', borderBottom: '1px dashed #cbd5e1', paddingBottom: '6px' }}>
-                    <span>{tagDetail.hardwareId} ({tagDetail.size})</span>
-                    <span>🔋 {tagDetail.batteryPct}% • 📶 {tagDetail.rssi} dBm</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>{tagDetail.hardwareId} ({tagDetail.size})</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>Battery: {tagDetail.batteryPct}% • Signal: {tagDetail.rssi} dBm</span>
                   </div>
                   {inspectorPromo ? (
-                    <div style={{ backgroundColor: '#111827', color: '#ffffff', padding: '2px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 800, display: 'inline-block', marginTop: '6px' }}>
+                    <div style={{ backgroundColor: '#111827', color: '#ffffff', padding: '2px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 800, display: 'inline-block', marginTop: '6px', whiteSpace: 'nowrap' }}>
                       {inspectorPromo}
                     </div>
                   ) : <div style={{ height: '14px' }}></div>}
                   <div style={{ fontSize: '16px', fontWeight: 800, margin: '4px 0' }}>
                     {tagDetail.sku ? tagDetail.sku.name : 'Unpaired Tag'}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                    <span style={{ fontSize: '28px', fontWeight: 900 }}>₹{inspectorPriceRupees || '0.00'}</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '28px', fontWeight: 900, whiteSpace: 'nowrap' }}>₹{inspectorPriceRupees || '0.00'}</span>
                     {inspectorMrpRupees && parseFloat(inspectorMrpRupees) > parseFloat(inspectorPriceRupees || '0') && (
-                      <span style={{ color: '#94a3b8', textDecoration: 'line-through', fontSize: '14px' }}>₹{inspectorMrpRupees}</span>
+                      <span style={{ color: '#94a3b8', textDecoration: 'line-through', fontSize: '14px', whiteSpace: 'nowrap' }}>₹{inspectorMrpRupees}</span>
                     )}
                   </div>
                 </div>
@@ -1924,12 +3125,12 @@ export default function App() {
                 <div style={{ backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, borderRadius: '10px', padding: '14px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: c.textMuted, textTransform: 'uppercase' }}>State Configuration Diff (SOW LBL-06):</span>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '8px', fontSize: '12px', fontFamily: 'monospace' }}>
-                    <div style={{ backgroundColor: isDark ? '#090d16' : '#ffffff', border: `1px solid ${c.border}`, padding: '8px 10px', borderRadius: '6px' }}>
+                    <div style={{ backgroundColor: '#ffffff', border: `1px solid ${c.border}`, padding: '8px 10px', borderRadius: '6px' }}>
                       <div style={{ color: c.primaryHover, fontWeight: 700 }}>CLOUD DESIRED</div>
                       <div>Version: <strong>v{tagDetail.desiredVersion}</strong></div>
                       <div style={{ fontSize: '10px', color: c.textMuted, marginTop: '2px' }}>Hash: {tagDetail.desiredHash?.slice(0, 8)}...</div>
                     </div>
-                    <div style={{ backgroundColor: isDark ? '#090d16' : '#ffffff', border: `1px solid ${c.border}`, padding: '8px 10px', borderRadius: '6px' }}>
+                    <div style={{ backgroundColor: '#ffffff', border: `1px solid ${c.border}`, padding: '8px 10px', borderRadius: '6px' }}>
                       <div style={{ color: tagDetail.isDiverged ? c.warning : c.success, fontWeight: 700 }}>HARDWARE REPORTED</div>
                       <div>Version: <strong>v{tagDetail.reportedVersion}</strong></div>
                       <div style={{ fontSize: '10px', color: c.textMuted, marginTop: '2px' }}>Acked via {tagDetail.gateway.hardwareId}</div>
@@ -2048,12 +3249,12 @@ export default function App() {
 
                 // PRC-04 Guardrail
                 if (priceMinor > mrpMinor) {
-                  showToast('⚠️ Guardrail Violation (PRC-04): Selling price cannot exceed MRP.');
+                  showToast('Guardrail Violation (PRC-04): Selling price cannot exceed MRP.');
                   return;
                 }
 
                 try {
-                  const res = await fetch(`${API_BASE}/api/skus`, {
+                  const res = await apiFetch(`${API_BASE}/api/skus`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2066,15 +3267,15 @@ export default function App() {
                     }),
                   });
                   if (res.ok) {
-                    showToast(`✅ Created SKU ${code}!`);
+                    showToast(`Created SKU ${code}.`);
                     setShowAddSkuModal(false);
                     fetchData();
                   } else {
                     const err = await res.json();
-                    showToast(`❌ ${err.error || 'Failed to create SKU'}`);
+                    showToast(err.error || 'Failed to create SKU');
                   }
                 } catch {
-                  showToast('❌ Failed to create SKU');
+                  showToast('Failed to create SKU');
                 }
               }}
               style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}
@@ -2101,7 +3302,7 @@ export default function App() {
                 <label style={{ display: 'block', color: c.textMuted, marginBottom: '2px' }}>Promo Badge:</label>
                 <input name="promo" type="text" placeholder="e.g. 10% OFF" style={{ width: '100%', backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, color: c.text, padding: '6px', borderRadius: '6px' }} />
               </div>
-              <button type="submit" style={{ backgroundColor: c.primary, color: '#ffffff', border: 'none', borderRadius: '6px', padding: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', marginTop: '6px' }}>
+              <button type="submit" style={{ backgroundColor: c.primary, color: '#ffffff', border: 'none', borderRadius: '6px', padding: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', marginTop: '6px', whiteSpace: 'nowrap' }}>
                 Create SKU
               </button>
             </form>
@@ -2125,12 +3326,12 @@ export default function App() {
 
                 // PRC-04 Guardrail
                 if (priceMinor > mrpMinor) {
-                  showToast('⚠️ Guardrail Violation (PRC-04): Selling price cannot exceed MRP.');
+                  showToast('Guardrail Violation (PRC-04): Selling price cannot exceed MRP.');
                   return;
                 }
 
                 try {
-                  const res = await fetch(`${API_BASE}/api/skus/${showEditSkuModal.id}`, {
+                  const res = await apiFetch(`${API_BASE}/api/skus/${showEditSkuModal.id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2141,15 +3342,15 @@ export default function App() {
                     }),
                   });
                   if (res.ok) {
-                    showToast(`✅ Updated ${showEditSkuModal.code}! Synchronizing labels...`);
+                    showToast(`Updated ${showEditSkuModal.code}. Synchronizing labels...`);
                     setShowEditSkuModal(null);
                     fetchData();
                   } else {
                     const err = await res.json();
-                    showToast(`❌ ${err.error || 'Failed to update SKU'}`);
+                    showToast(err.error || 'Failed to update SKU');
                   }
                 } catch {
-                  showToast('❌ Failed to update SKU');
+                  showToast('Failed to update SKU');
                 }
               }}
               style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}
@@ -2172,7 +3373,7 @@ export default function App() {
                 <label style={{ display: 'block', color: c.textMuted, marginBottom: '2px' }}>Promo Badge:</label>
                 <input name="promo" type="text" defaultValue={showEditSkuModal.promoBadge ?? ''} style={{ width: '100%', backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, color: c.text, padding: '6px', borderRadius: '6px' }} />
               </div>
-              <button type="submit" style={{ backgroundColor: c.primary, color: '#ffffff', border: 'none', borderRadius: '6px', padding: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', marginTop: '6px' }}>
+              <button type="submit" style={{ backgroundColor: c.primary, color: '#ffffff', border: 'none', borderRadius: '6px', padding: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', marginTop: '6px', whiteSpace: 'nowrap' }}>
                 Save & Broadcast Update
               </button>
             </form>
@@ -2196,7 +3397,7 @@ export default function App() {
                 const skuId = (form.elements.namedItem('skuId') as HTMLSelectElement).value;
 
                 try {
-                  const res = await fetch(`${API_BASE}/api/tags`, {
+                  const res = await apiFetch(`${API_BASE}/api/tags`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2208,12 +3409,12 @@ export default function App() {
                     }),
                   });
                   if (res.ok) {
-                    showToast(`✅ Registered tag ${hardwareId}!`);
+                    showToast(`Registered tag ${hardwareId}.`);
                     setShowAddTagModal(false);
                     fetchData();
                   }
                 } catch {
-                  showToast('❌ Failed to register tag');
+                  showToast('Failed to register tag');
                 }
               }}
               style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}
@@ -2297,7 +3498,7 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: `1px solid ${c.border}`, paddingBottom: '10px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: c.text }}>
-                  ⚡ Quick Price Update
+                  Quick Price Update
                 </h3>
                 <span style={{ fontSize: '11px', color: c.textMuted, fontFamily: 'monospace' }}>
                   Label {quickPriceTag.hardwareId} • AP: {quickPriceTag.gatewayHardwareId}
@@ -2413,9 +3614,10 @@ export default function App() {
                     fontSize: '13px',
                     fontWeight: 800,
                     cursor: 'pointer',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  Dispatch Price to Radio ➔
+                  Dispatch Price to Radio
                 </button>
               </div>
             </div>
@@ -2454,7 +3656,7 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: `1px solid ${c.border}`, paddingBottom: '10px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: c.text }}>
-                  📡 Provision Access Point (AP)
+                  Provision Access Point (AP)
                 </h3>
                 <span style={{ fontSize: '11px', color: c.textMuted }}>
                   Registers hardware ID with WebSocket gateway tunnel
@@ -2563,12 +3765,1742 @@ export default function App() {
                     fontSize: '13px',
                     fontWeight: 800,
                     cursor: 'pointer',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  Save & Provision AP ➔
+                  Save & Provision AP
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Highlight Cloud Physical ESL OTA Price Push Modal */}
+      {showHighlightOtaModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setShowHighlightOtaModal(null)}
+        >
+          <div
+            style={{
+              backgroundColor: c.surface,
+              border: `1px solid ${c.border}`,
+              borderRadius: '12px',
+              padding: '22px',
+              width: '100%',
+              maxWidth: '480px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: `1px solid ${c.border}`, paddingBottom: '10px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: c.text, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Zap size={18} color="#eab308" /> Physical ESL OTA Price Push
+                </h3>
+                <span style={{ fontSize: '11px', color: c.textMuted, fontFamily: 'monospace' }}>
+                  Tag: {showHighlightOtaModal.deviceNumber} • AP: {showHighlightOtaModal.stationId || 'E43819636067'}
+                </span>
+              </div>
+              <button
+                onClick={() => setShowHighlightOtaModal(null)}
+                style={{ background: 'transparent', border: 'none', color: c.textMuted, cursor: 'pointer', fontSize: '20px', fontWeight: 800 }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}>
+              <div>
+                <label style={{ display: 'block', color: c.textMuted, fontWeight: 700, marginBottom: '4px' }}>
+                  SKU Code:
+                </label>
+                <input
+                  type="text"
+                  value={otaSkuCode}
+                  onChange={(e) => setOtaSkuCode(e.target.value)}
+                  style={{
+                    width: '100%',
+                    backgroundColor: c.surfaceSubtle,
+                    border: `1px solid ${c.border}`,
+                    color: c.text,
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', color: c.textMuted, fontWeight: 700, marginBottom: '4px' }}>
+                  Product Title:
+                </label>
+                <input
+                  type="text"
+                  value={otaSkuName}
+                  onChange={(e) => setOtaSkuName(e.target.value)}
+                  style={{
+                    width: '100%',
+                    backgroundColor: c.surfaceSubtle,
+                    border: `1px solid ${c.border}`,
+                    color: c.text,
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ display: 'block', color: c.textMuted, fontWeight: 700, marginBottom: '4px' }}>
+                    Selling Price (₹):
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={otaPrice}
+                    onChange={(e) => setOtaPrice(e.target.value)}
+                    style={{
+                      width: '100%',
+                      backgroundColor: c.surfaceSubtle,
+                      border: `1.5px solid ${c.primaryHover}`,
+                      color: c.text,
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      fontSize: '15px',
+                      fontWeight: 800,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', color: c.textMuted, fontWeight: 700, marginBottom: '4px' }}>
+                    MRP Guardrail (₹):
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={otaMrp}
+                    onChange={(e) => setOtaMrp(e.target.value)}
+                    style={{
+                      width: '100%',
+                      backgroundColor: c.surfaceSubtle,
+                      border: `1px solid ${c.border}`,
+                      color: c.text,
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      fontSize: '15px',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ display: 'block', color: c.textMuted, fontWeight: 700, marginBottom: '4px' }}>
+                    Promo Badge:
+                  </label>
+                  <input
+                    type="text"
+                    value={otaPromo}
+                    onChange={(e) => setOtaPromo(e.target.value)}
+                    placeholder="e.g. SPECIAL OFFER"
+                    style={{
+                      width: '100%',
+                      backgroundColor: c.surfaceSubtle,
+                      border: `1px solid ${c.border}`,
+                      color: c.text,
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', color: c.textMuted, fontWeight: 700, marginBottom: '4px' }}>
+                    Cloud Template:
+                  </label>
+                  <select
+                    value={otaTemplateId}
+                    onChange={(e) => setOtaTemplateId(e.target.value)}
+                    style={{
+                      width: '100%',
+                      backgroundColor: c.surfaceSubtle,
+                      border: `1px solid ${c.border}`,
+                      color: c.text,
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                    }}
+                  >
+                    {highlightTemplates.map((t) => (
+                      <option key={t.templateId} value={t.templateId}>
+                        {t.templateName || `Template #${t.templateId}`}
+                      </option>
+                    ))}
+                    {highlightTemplates.length === 0 && (
+                      <>
+                        <option value="1213">1213 (2.9" 3-Color)</option>
+                        <option value="1212">1212 (5.8" 3-Color)</option>
+                        <option value="1214">1214 (1.8" 3-Color)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: 'rgba(5, 150, 105, 0.1)', border: '1px solid rgba(5, 150, 105, 0.25)', borderRadius: '6px', padding: '10px', fontSize: '11px', color: c.success }}>
+                OTA transmission updates Highlight cloud catalog and dispatches an immediate <code>bindingPos</code> command over Sub-GHz radio to AP <strong>{showHighlightOtaModal.stationId || 'E43819636067'}</strong>.
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                <button
+                  onClick={() => setShowHighlightOtaModal(null)}
+                  disabled={isPushingOta}
+                  style={{
+                    flex: 1,
+                    backgroundColor: c.surfaceSubtle,
+                    color: c.text,
+                    border: `1px solid ${c.border}`,
+                    borderRadius: '6px',
+                    padding: '10px',
+                    fontWeight: 600,
+                    cursor: isPushingOta ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleExecuteHighlightOtaPush}
+                  disabled={isPushingOta}
+                  style={{
+                    flex: 2,
+                    backgroundColor: isPushingOta ? c.surfaceSubtle : c.primary,
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '10px',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    cursor: isPushingOta ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  {isPushingOta ? (
+                    <>
+                      <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                      <span style={{ whiteSpace: 'nowrap' }}>Broadcasting to AP...</span>
+                    </>
+                  ) : (
+                    <span style={{ whiteSpace: 'nowrap' }}>Transmit OTA to Tag</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          STUDIO MODAL: PAIR PHYSICAL HARDWARE TAG WITH PRODUCT SKU
+      ========================================================================== */}
+      {showPairModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setShowPairModal(null)}
+        >
+          <div
+            style={{
+              backgroundColor: c.surface,
+              border: `1px solid ${c.border}`,
+              borderRadius: '12px',
+              padding: '24px',
+              width: '100%',
+              maxWidth: '840px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 12px 40px rgba(0,0,0,0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', borderBottom: `1px solid ${c.border}`, paddingBottom: '12px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: c.text, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Link2 size={18} color={c.primary} />
+                  <span>Hardware Tag Pairing Studio</span>
+                </h3>
+                <p style={{ margin: '3px 0 0', fontSize: '12px', color: c.textMuted }}>
+                  Bind a real Highlight ESL label with a product SKU and dispatch an over-the-air display update via AP <strong>E43819636067</strong>.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowPairModal(null)}
+                style={{ background: 'transparent', border: 'none', color: c.textMuted, cursor: 'pointer', fontSize: '22px', fontWeight: 700 }}
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Quick Catalog Presets */}
+            <div style={{ marginBottom: '16px', backgroundColor: c.surfaceSubtle, padding: '10px 14px', borderRadius: '8px', border: `1px solid ${c.border}` }}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: c.textMuted, textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Highlight Cloud Catalog (${highlightProducts.length} Live Items):</span>
+                <span style={{ color: c.primary, fontWeight: 500, fontSize: '10px' }}>1-Click Auto-Fill</span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {highlightProducts.length > 0 ? (
+                  highlightProducts.map((p) => {
+                    const mrpMatch = p.custFeature2?.match(/\d+(\.\d+)?/);
+                    const mrpVal = mrpMatch ? mrpMatch[0] : (typeof p.price === 'number' ? p.price.toFixed(2) : String(p.price));
+                    const isSelected = pairSkuCode === p.uniqueId;
+                    return (
+                      <button
+                        key={p.uniqueId}
+                        type="button"
+                        onClick={() => {
+                          setPairSkuCode(p.uniqueId);
+                          setPairProdName(p.prodName);
+                          setPairHindiName(p.custFeature1 || '');
+                          setPairPrice(typeof p.price === 'number' ? p.price.toFixed(2) : String(p.price));
+                          setPairMrp(mrpVal);
+                          setPairPromo(p.custFeature3?.replace(/^PROMO:\s*/i, '') || p.copyWriting || '');
+                          setPairTemplateId('1256');
+                        }}
+                        style={{
+                          backgroundColor: isSelected ? c.primaryBg : c.surface,
+                          border: `1px solid ${isSelected ? c.primary : c.border}`,
+                          borderRadius: '6px',
+                          padding: '5px 10px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          color: c.text,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        <span style={{ fontFamily: 'monospace', color: c.primary, fontSize: '11px' }}>{p.uniqueId}</span>
+                        <span>{p.prodName}</span>
+                        <span style={{ color: c.success, fontWeight: 700 }}>₹{typeof p.price === 'number' ? p.price.toFixed(2) : p.price}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPairSkuCode('SKU-KLK-750');
+                        setPairProdName('Bada Wala Kalakand (Special 500g)');
+                        setPairHindiName('बड़ा वाला कलाकंद स्पेशल');
+                        setPairPrice('245.00');
+                        setPairMrp('280.00');
+                        setPairPromo('SAVE ₹35');
+                        setPairTemplateId('1256');
+                      }}
+                      style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '4px 10px', fontSize: '12px', fontWeight: 600, color: c.text, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      Bada Wala Kalakand (₹245)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPairSkuCode('123456');
+                        setPairProdName('Kalakand');
+                        setPairHindiName('per piece');
+                        setPairPrice('16.00');
+                        setPairMrp('20.00');
+                        setPairPromo('FRESH');
+                        setPairTemplateId('1256');
+                      }}
+                      style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '4px', padding: '4px 10px', fontSize: '12px', fontWeight: 600, color: c.text, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      Kalakand (₹16)
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Two-Column Grid: Form Controls vs Live E-Paper Preview */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px' }}>
+              {/* Left Column: Form Inputs */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', color: c.textMuted, fontWeight: 600, marginBottom: '4px' }}>
+                    Select Physical Highlight ESL Device:
+                  </label>
+                  <select
+                    value={pairDeviceNumber}
+                    onChange={(e) => {
+                      const selected = e.target.value;
+                      setPairDeviceNumber(selected);
+                      if (selected === '8003152970') setPairTemplateId('1256');
+                      else if (selected === '8003144211') setPairTemplateId('1217');
+                    }}
+                    style={{
+                      width: '100%',
+                      backgroundColor: c.surfaceSubtle,
+                      border: `1px solid ${c.border}`,
+                      color: c.text,
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      fontFamily: 'monospace',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {highlightDevices.map((d) => (
+                      <option key={d.deviceNumber} value={d.deviceNumber}>
+                        {d.deviceNumber} • Signal: {d.signal ? `${d.signal} dBm` : '-70 dBm'} • Battery: {((d.powerLevel ?? 5) * 20)}% {d.deviceNumber === '8003152970' ? '(7.5" HS750-M)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', color: c.textMuted, fontWeight: 600, marginBottom: '4px' }}>
+                      SKU Code:
+                    </label>
+                    <input
+                      type="text"
+                      value={pairSkuCode}
+                      onChange={(e) => setPairSkuCode(e.target.value)}
+                      placeholder="e.g. SKU-DAL-1KG"
+                      style={{
+                        width: '100%',
+                        backgroundColor: c.surfaceSubtle,
+                        border: `1px solid ${c.border}`,
+                        color: c.text,
+                        padding: '8px 10px',
+                        borderRadius: '6px',
+                        fontFamily: 'monospace',
+                        fontWeight: 600,
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', color: c.textMuted, fontWeight: 600, marginBottom: '4px' }}>
+                      Promotional Tagline:
+                    </label>
+                    <input
+                      type="text"
+                      value={pairPromo}
+                      onChange={(e) => setPairPromo(e.target.value)}
+                      placeholder="e.g. SPECIAL OFFER"
+                      style={{
+                        width: '100%',
+                        backgroundColor: c.surfaceSubtle,
+                        border: `1px solid ${c.border}`,
+                        color: c.text,
+                        padding: '8px 10px',
+                        borderRadius: '6px',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', color: c.textMuted, fontWeight: 600, marginBottom: '4px' }}>
+                    Product Title (English):
+                  </label>
+                  <input
+                    type="text"
+                    value={pairProdName}
+                    onChange={(e) => setPairProdName(e.target.value)}
+                    placeholder="e.g. Bada Wala Kalakand 500g"
+                    style={{
+                      width: '100%',
+                      backgroundColor: c.surfaceSubtle,
+                      border: `1px solid ${c.border}`,
+                      color: c.text,
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', color: c.textMuted, fontWeight: 600, marginBottom: '4px' }}>
+                    Regional / Hindi Name (custFeature1):
+                  </label>
+                  <input
+                    type="text"
+                    value={pairHindiName}
+                    onChange={(e) => setPairHindiName(e.target.value)}
+                    placeholder="e.g. बड़ा वाला कलाकंद"
+                    style={{
+                      width: '100%',
+                      backgroundColor: c.surfaceSubtle,
+                      border: `1px solid ${c.border}`,
+                      color: c.text,
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', color: c.textMuted, fontWeight: 600, marginBottom: '4px' }}>
+                      Selling Price (₹):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.50"
+                      value={pairPrice}
+                      onChange={(e) => setPairPrice(e.target.value)}
+                      style={{
+                        width: '100%',
+                        backgroundColor: c.surfaceSubtle,
+                        border: `1px solid ${c.border}`,
+                        color: c.text,
+                        padding: '8px 10px',
+                        borderRadius: '6px',
+                        fontWeight: 700,
+                        fontSize: '14px',
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', color: c.textMuted, fontWeight: 600, marginBottom: '4px' }}>
+                      MRP (₹):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.50"
+                      value={pairMrp}
+                      onChange={(e) => setPairMrp(e.target.value)}
+                      style={{
+                        width: '100%',
+                        backgroundColor: c.surfaceSubtle,
+                        border: `1px solid ${c.border}`,
+                        color: c.text,
+                        padding: '8px 10px',
+                        borderRadius: '6px',
+                        fontWeight: 700,
+                        fontSize: '14px',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', color: c.textMuted, fontWeight: 600, marginBottom: '4px' }}>
+                    E-Paper Display Template:
+                  </label>
+                  <select
+                    value={pairTemplateId}
+                    onChange={(e) => setPairTemplateId(e.target.value)}
+                    style={{
+                      width: '100%',
+                      backgroundColor: c.surfaceSubtle,
+                      border: `1px solid ${c.border}`,
+                      color: c.text,
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                    }}
+                  >
+                    {highlightTemplates.map((t) => (
+                      <option key={t.templateId} value={t.templateId}>
+                        {t.templateName || `Template #${t.templateId}`} {t.templateId === '1256' ? '(Recommended for 7.5")' : ''}
+                      </option>
+                    ))}
+                    {highlightTemplates.length === 0 && (
+                      <>
+                        <option value="1256">1256 - Bada wala kalakand (7.5" HS750-M)</option>
+                        <option value="1213">1213 - 2.9" BWRY Standard</option>
+                        <option value="1217">1217 - 4.2" BWRY Medium</option>
+                        <option value="1212">1212 - 5.8" BWRY Large</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {/* Right Column: Live E-Paper Screen Simulation Preview */}
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: c.textMuted, textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Live E-Paper Screen Preview</span>
+                  <span style={{ fontSize: '10px', backgroundColor: c.surfaceSubtle, padding: '2px 6px', borderRadius: '4px', border: `1px solid ${c.border}`, color: c.textSecondary }}>
+                    Template #{pairTemplateId}
+                  </span>
+                </div>
+
+                {/* Hardware Bezel */}
+                <div
+                  style={{
+                    backgroundColor: '#1e293b',
+                    borderRadius: '14px',
+                    padding: '14px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    border: '2px solid #334155',
+                  }}
+                >
+                  {/* E-Ink Matte Display Canvas */}
+                  <div
+                    style={{
+                      backgroundColor: '#ffffff',
+                      borderRadius: '6px',
+                      padding: '14px',
+                      minHeight: '260px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      border: '1px solid #cbd5e1',
+                    }}
+                  >
+                    {/* Top Header: Promo Badge + Product Name */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'nowrap', gap: '8px' }}>
+                        {pairPromo ? (
+                          <span
+                            style={{
+                              backgroundColor: '#dc2626',
+                              color: '#ffffff',
+                              fontSize: '10px',
+                              fontWeight: 800,
+                              padding: '2px 8px',
+                              borderRadius: '3px',
+                              whiteSpace: 'nowrap',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                            }}
+                          >
+                            {pairPromo}
+                          </span>
+                        ) : <span />}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <img src={quickshelfIcon} alt="QuickShelf" style={{ width: '14px', height: '14px', objectFit: 'contain' }} />
+                          <span style={{ fontSize: '10px', color: '#64748b', fontFamily: 'monospace', fontWeight: 600 }}>
+                            QuickShelf ESL
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
+                        {pairProdName || 'Product Title'}
+                      </div>
+                      {pairHindiName && (
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', marginTop: '2px' }}>
+                          {pairHindiName}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Middle: Large Price Block */}
+                    <div style={{ margin: '14px 0', borderTop: '1px dashed #cbd5e1', borderBottom: '1px dashed #cbd5e1', padding: '10px 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                        <span style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>₹</span>
+                        <span style={{ fontSize: '38px', fontWeight: 900, color: '#0f172a', lineHeight: 1 }}>
+                          {parseFloat(pairPrice || '0').toFixed(0)}
+                        </span>
+                        <span style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+                          .{(parseFloat(pairPrice || '0') % 1).toFixed(2).substring(2)}
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginLeft: '4px' }}>
+                          / 1 unit
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', fontSize: '11px' }}>
+                        <span style={{ textDecoration: 'line-through', color: '#94a3b8', fontWeight: 600 }}>
+                          MRP: ₹{parseFloat(pairMrp || '0').toFixed(0)}
+                        </span>
+                        {parseFloat(pairMrp || '0') > parseFloat(pairPrice || '0') && (
+                          <span style={{ backgroundColor: '#ecfdf5', color: '#059669', padding: '1px 6px', borderRadius: '3px', fontWeight: 700 }}>
+                            SAVE ₹{(parseFloat(pairMrp || '0') - parseFloat(pairPrice || '0')).toFixed(0)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bottom: Simulated Barcode & Sub-GHz AP Info */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                      <div>
+                        {/* Barcode lines */}
+                        <div style={{ display: 'flex', gap: '2px', height: '18px', alignItems: 'flex-end', marginBottom: '2px' }}>
+                          <span style={{ width: '2px', height: '18px', backgroundColor: '#0f172a' }} />
+                          <span style={{ width: '1px', height: '18px', backgroundColor: '#0f172a' }} />
+                          <span style={{ width: '3px', height: '18px', backgroundColor: '#0f172a' }} />
+                          <span style={{ width: '1px', height: '18px', backgroundColor: '#0f172a' }} />
+                          <span style={{ width: '2px', height: '18px', backgroundColor: '#0f172a' }} />
+                          <span style={{ width: '4px', height: '18px', backgroundColor: '#0f172a' }} />
+                          <span style={{ width: '1px', height: '18px', backgroundColor: '#0f172a' }} />
+                          <span style={{ width: '2px', height: '18px', backgroundColor: '#0f172a' }} />
+                          <span style={{ width: '1px', height: '18px', backgroundColor: '#0f172a' }} />
+                          <span style={{ width: '3px', height: '18px', backgroundColor: '#0f172a' }} />
+                        </div>
+                        <span style={{ fontSize: '9px', fontFamily: 'monospace', color: '#64748b', fontWeight: 600 }}>
+                          {pairSkuCode || 'SKU-000000'}
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: '9px', color: '#64748b', textAlign: 'right', fontFamily: 'monospace' }}>
+                        <div>Tag: {pairDeviceNumber}</div>
+                        <div>AP: E43819636067</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <p style={{ margin: '8px 0 0', fontSize: '11px', color: c.textMuted, lineHeight: 1.4 }}>
+                  Clicking <strong>Pair & Transmit OTA</strong> creates/updates the SKU in Highlight's cloud catalog and broadcasts the radio command to the physical AP.
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px', borderTop: `1px solid ${c.border}`, paddingTop: '14px' }}>
+              <button
+                type="button"
+                onClick={() => setShowPairModal(null)}
+                disabled={isPairing}
+                style={{
+                  backgroundColor: c.surfaceSubtle,
+                  color: c.text,
+                  border: `1px solid ${c.border}`,
+                  borderRadius: '6px',
+                  padding: '9px 16px',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  cursor: isPairing ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecutePairTag}
+                disabled={isPairing}
+                style={{
+                  backgroundColor: isPairing ? c.surfaceSubtle : c.primary,
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '9px 20px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: isPairing ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                }}
+              >
+                {isPairing ? (
+                  <>
+                    <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                    <span>Broadcasting OTA Pairing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Link2 size={14} />
+                    <span>Pair & Transmit OTA Update</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          CONFIRMATION MODAL: UNBIND PHYSICAL ESL TAG
+      ========================================================================== */}
+      {showUnbindModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setShowUnbindModal(null)}
+        >
+          <div
+            style={{
+              backgroundColor: c.surface,
+              border: `1px solid ${c.border}`,
+              borderRadius: '12px',
+              padding: '22px',
+              width: '100%',
+              maxWidth: '440px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+              <div style={{ backgroundColor: '#fef2f2', padding: '8px', borderRadius: '8px' }}>
+                <Unlink size={20} color="#dc2626" />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: c.text }}>
+                Unbind Physical ESL Tag
+              </h3>
+            </div>
+
+            <p style={{ margin: '0 0 14px', fontSize: '13px', color: c.textSecondary, lineHeight: 1.5 }}>
+              Are you sure you want to unbind tag <strong style={{ fontFamily: 'monospace', color: c.text }}>{showUnbindModal.deviceNumber}</strong>?
+            </p>
+
+            <div style={{ backgroundColor: c.surfaceSubtle, padding: '10px 12px', borderRadius: '6px', border: `1px solid ${c.border}`, fontSize: '12px', marginBottom: '16px' }}>
+              <div><strong>Current Product:</strong> {showUnbindModal.skuName || showUnbindModal.skuCode || 'Bound Item'}</div>
+              <div style={{ marginTop: '3px' }}><strong>AP Base Station:</strong> {showUnbindModal.stationId || 'E43819636067'}</div>
+              <div style={{ marginTop: '3px', color: c.textMuted }}>
+                The physical e-paper display will be cleared and the tag returned to the standby inventory pool.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setShowUnbindModal(null)}
+                disabled={isUnbinding}
+                style={{
+                  backgroundColor: c.surfaceSubtle,
+                  color: c.text,
+                  border: `1px solid ${c.border}`,
+                  borderRadius: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: isUnbinding ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteUnbind}
+                disabled={isUnbinding}
+                style={{
+                  backgroundColor: '#dc2626',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '8px 16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: isUnbinding ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {isUnbinding ? (
+                  <>
+                    <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                    <span>Unbinding...</span>
+                  </>
+                ) : (
+                  <>
+                    <Unlink size={13} />
+                    <span>Confirm Unbind</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: USER INFORMATION & SYSTEM SETTINGS
+      ========================================================================== */}
+      {showSettingsModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setShowSettingsModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: c.surface,
+              border: `1px solid ${c.border}`,
+              borderRadius: '12px',
+              padding: '24px',
+              width: '100%',
+              maxWidth: '640px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ backgroundColor: c.primaryBg, padding: '8px', borderRadius: '8px' }}>
+                  <Settings size={20} color={c.primary} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: c.text, whiteSpace: 'nowrap' }}>
+                    Operator Profile & System Settings
+                  </h3>
+                  <div style={{ fontSize: '12px', color: c.textMuted, marginTop: '2px', whiteSpace: 'nowrap' }}>
+                    QuickShelf ESL Platform • Org: <strong style={{ fontFamily: 'monospace', color: c.text }}>CU006INDIA0344:483</strong>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: c.textMuted,
+                  cursor: 'pointer',
+                  padding: '4px',
+                  borderRadius: '4px',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Nav Tabs */}
+            <div style={{ display: 'flex', gap: '8px', borderBottom: `1px solid ${c.border}`, paddingBottom: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setSettingsTab('profile')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  backgroundColor: settingsTab === 'profile' ? c.primary : c.surfaceSubtle,
+                  color: settingsTab === 'profile' ? '#ffffff' : c.textSecondary,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <User size={13} />
+                <span>User Profile</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSettingsTab('hardware')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  backgroundColor: settingsTab === 'hardware' ? c.primary : c.surfaceSubtle,
+                  color: settingsTab === 'hardware' ? '#ffffff' : c.textSecondary,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Cpu size={13} />
+                <span>Cloud & Sub-GHz IoT</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSettingsTab('guardrails')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  backgroundColor: settingsTab === 'guardrails' ? c.primary : c.surfaceSubtle,
+                  color: settingsTab === 'guardrails' ? '#ffffff' : c.textSecondary,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <ShieldCheck size={13} />
+                <span>Compliance & Guardrails</span>
+              </button>
+            </div>
+
+            {/* TAB 1: USER PROFILE */}
+            {settingsTab === 'profile' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: c.text, marginBottom: '6px' }}>
+                    Full Name
+                  </label>
+                  <input
+                    type="text"
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
+                    placeholder="e.g. Suman Saurav"
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '6px',
+                      border: `1px solid ${c.border}`,
+                      fontSize: '13px',
+                      outline: 'none',
+                      backgroundColor: c.surface,
+                      color: c.text,
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: c.text, marginBottom: '6px' }}>
+                    Work Email
+                  </label>
+                  <input
+                    type="email"
+                    value={userEmail}
+                    onChange={(e) => setUserEmail(e.target.value)}
+                    placeholder="e.g. operations@quickshelf.io"
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '6px',
+                      border: `1px solid ${c.border}`,
+                      fontSize: '13px',
+                      outline: 'none',
+                      backgroundColor: c.surface,
+                      color: c.text,
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: c.text, marginBottom: '6px' }}>
+                      Operational Role
+                    </label>
+                    <input
+                      type="text"
+                      value={userRole}
+                      onChange={(e) => setUserRole(e.target.value)}
+                      placeholder="e.g. Store Operations Lead"
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '6px',
+                        border: `1px solid ${c.border}`,
+                        fontSize: '13px',
+                        outline: 'none',
+                        backgroundColor: c.surface,
+                        color: c.text,
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: c.text, marginBottom: '6px' }}>
+                      Assigned Retail Store
+                    </label>
+                    <input
+                      type="text"
+                      value={userStore}
+                      onChange={(e) => setUserStore(e.target.value)}
+                      placeholder="e.g. Store 001 - Phoenix Mall"
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '6px',
+                        border: `1px solid ${c.border}`,
+                        fontSize: '13px',
+                        outline: 'none',
+                        backgroundColor: c.surface,
+                        color: c.text,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSettingsModal(false);
+                      handleLogout();
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      backgroundColor: '#fef2f2',
+                      border: '1px solid #fecaca',
+                      color: '#dc2626',
+                      borderRadius: '6px',
+                      padding: '8px 14px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      marginRight: 'auto',
+                    }}
+                  >
+                    <LogOut size={14} />
+                    <span>Sign Out</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSettingsModal(false)}
+                    style={{
+                      backgroundColor: c.surfaceSubtle,
+                      color: c.text,
+                      border: `1px solid ${c.border}`,
+                      borderRadius: '6px',
+                      padding: '8px 16px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveUserProfile}
+                    style={{
+                      backgroundColor: c.primary,
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 18px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: HARDWARE & CLOUD CONFIG */}
+            {settingsTab === 'hardware' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '12px', fontSize: '12px', color: c.textSecondary }}>
+                  <div style={{ fontWeight: 600, color: c.text, marginBottom: '4px' }}>Highlight ESL Cloud Production Gateway</div>
+                  <div>Live Sub-GHz RF Base Station transceiver connected and authenticated via MD5 signed RPC protocol.</div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px' }}>
+                  <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '10px' }}>
+                    <div style={{ color: c.textMuted, fontSize: '11px', fontWeight: 600 }}>ORGANIZATION ID</div>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 700, marginTop: '2px' }}>CU006INDIA0344:483</div>
+                  </div>
+                  <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '10px' }}>
+                    <div style={{ color: c.textMuted, fontSize: '11px', fontWeight: 600 }}>AP BASE STATION MAC</div>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 700, marginTop: '2px' }}>E43819636067</div>
+                  </div>
+                  <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '10px' }}>
+                    <div style={{ color: c.textMuted, fontSize: '11px', fontWeight: 600 }}>HIGHLIGHT CLOUD ENDPOINT</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: '11px', marginTop: '2px' }}>electronicshelflabel.cn:8082</div>
+                  </div>
+                  <div style={{ backgroundColor: c.surface, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '10px' }}>
+                    <div style={{ color: c.textMuted, fontSize: '11px', fontWeight: 600 }}>AUTHENTICATION APPKEY</div>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 700, marginTop: '2px' }}>21186651 (Active)</div>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: c.text, marginBottom: '6px' }}>
+                    Sub-GHz Wireless RF Region
+                  </label>
+                  <input
+                    type="text"
+                    value={rfRegion}
+                    onChange={(e) => setRfRegion(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '6px',
+                      border: `1px solid ${c.border}`,
+                      fontSize: '13px',
+                      outline: 'none',
+                      backgroundColor: c.surface,
+                      color: c.text,
+                    }}
+                  />
+                  <span style={{ fontSize: '11px', color: c.textMuted, marginTop: '4px', display: 'block' }}>
+                    Complies with India Wireless Planning & Coordination (WPC) license-exempt band.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: COMPLIANCE & GUARDRAILS */}
+            {settingsTab === 'guardrails' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '12px', fontSize: '12px', color: '#1e40af' }}>
+                  <div style={{ fontWeight: 700, marginBottom: '4px' }}>Legal Metrology Act (PRC-04) Price Integrity</div>
+                  <div>Automated rule enforcement preventing retailers from displaying selling prices greater than Maximum Retail Price (MRP).</div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', border: `1px solid ${c.border}`, borderRadius: '6px' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '13px', color: c.text }}>Enforce PRC-04 Guardrail (Selling Price ≤ MRP)</div>
+                    <div style={{ fontSize: '11px', color: c.textMuted }}>Rejects API and manual POS inputs that violate statutory maximum price limits.</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={guardrailStrict}
+                    onChange={(e) => setGuardrailStrict(e.target.checked)}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', border: `1px solid ${c.border}`, borderRadius: '6px' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '13px', color: c.text }}>Low Battery Hardware Alert Level</div>
+                    <div style={{ fontSize: '11px', color: c.textMuted }}>Flags e-paper tag on dashboard when button-cell battery drops below threshold.</div>
+                  </div>
+                  <select
+                    value={lowBatteryAlertPct}
+                    onChange={(e) => setLowBatteryAlertPct(e.target.value)}
+                    style={{ padding: '6px 10px', borderRadius: '6px', border: `1px solid ${c.border}`, fontSize: '12px', backgroundColor: c.surface }}
+                  >
+                    <option value="15">15%</option>
+                    <option value="20">20% (Default)</option>
+                    <option value="25">25%</option>
+                    <option value="30">30%</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: BATCH CSV / EXCEL IMPORT & CAMPAIGN SUITE (HIGHLIGHT CLOUD APIS)
+      ========================================================================== */}
+      {showCsvModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setShowCsvModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: c.surface,
+              border: `1px solid ${c.border}`,
+              borderRadius: '12px',
+              padding: '24px',
+              width: '100%',
+              maxWidth: '720px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ backgroundColor: c.primaryBg, padding: '8px', borderRadius: '8px' }}>
+                  <FileSpreadsheet size={22} color={c.primary} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: c.text, whiteSpace: 'nowrap' }}>
+                    Highlight Batch Fleet & Campaign Studio
+                  </h3>
+                  <div style={{ fontSize: '12px', color: c.textMuted, marginTop: '2px', whiteSpace: 'nowrap' }}>
+                    Official Highlight ESL Cloud V5.0.17 Batch Suite • Org: <strong style={{ fontFamily: 'monospace', color: c.text }}>CU006INDIA0344:483</strong>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowCsvModal(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: c.textMuted,
+                  cursor: 'pointer',
+                  padding: '4px',
+                  borderRadius: '4px',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Nav Tabs */}
+            <div style={{ display: 'flex', gap: '8px', borderBottom: `1px solid ${c.border}`, paddingBottom: '10px', marginBottom: '16px' }}>
+              <button
+                type="button"
+                onClick={() => setCsvModalTab('import')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  backgroundColor: csvModalTab === 'import' ? c.primary : c.surfaceSubtle,
+                  color: csvModalTab === 'import' ? '#ffffff' : c.textSecondary,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Upload size={13} />
+                <span>Import Devices (CSV / Excel)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCsvModalTab('export')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  backgroundColor: csvModalTab === 'export' ? c.primary : c.surfaceSubtle,
+                  color: csvModalTab === 'export' ? '#ffffff' : c.textSecondary,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Download size={13} />
+                <span>Export Fleet Devices</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCsvModalTab('batchPrice')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  backgroundColor: csvModalTab === 'batchPrice' ? c.primary : c.surfaceSubtle,
+                  color: csvModalTab === 'batchPrice' ? '#ffffff' : c.textSecondary,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Percent size={13} />
+                <span>Batch Price & Campaign Update (API 4.7)</span>
+              </button>
+            </div>
+
+            {/* TAB 1: BATCH DEVICE IMPORT */}
+            {csvModalTab === 'import' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '12px', fontSize: '12px', color: c.textSecondary }}>
+                  <div style={{ fontWeight: 600, color: c.text, marginBottom: '4px' }}>
+                    Highlight Official Batch Import Template Format:
+                  </div>
+                  <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '11px', color: c.textSecondary, backgroundColor: c.surface, padding: '8px', borderRadius: '4px', border: `1px solid ${c.border}`, overflowX: 'auto' }}>
+{`Line 1: "Note\n<1>Field name in red color is mandatory\n<2>Revise device ID is prohibited\n<3>Revise or delete organization ID is prohibited",,
+Line 2: Device information,,
+Line 3: *Barcode,Device name,Organization(CU006INDIA0344:483)
+Line 4: 8003152970,Kalakand Display 7.5,CU006INDIA0344:483`}
+                  </pre>
+                  <div style={{ marginTop: '6px', fontSize: '11px', color: c.textMuted }}>
+                    💡 Supports both <strong>.xlsx (Excel)</strong> and <strong>.csv</strong> files. Device names are automatically synced via Highlight's <code style={{ color: c.primary }}>updateDevice</code> / <code style={{ color: c.primary }}>createDevice</code> APIs.
+                  </div>
+                </div>
+
+                {/* File Upload Box */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: c.text, marginBottom: '6px' }}>
+                    Upload Batch Sheet (.xlsx or .csv)
+                  </label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setSelectedBatchFile(e.target.files[0]);
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      borderRadius: '6px',
+                      border: `1px dashed ${c.borderStrong}`,
+                      backgroundColor: c.surfaceSubtle,
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                    }}
+                  />
+                  {selectedBatchFile && (
+                    <div style={{ fontSize: '11px', color: c.primary, marginTop: '4px', fontWeight: 500 }}>
+                      ✓ Selected file: {selectedBatchFile.name} ({(selectedBatchFile.size / 1024).toFixed(1)} KB)
+                    </div>
+                  )}
+                </div>
+
+                {/* Direct CSV Text Area Fallback */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: c.text }}>
+                      Or Paste CSV Text Directly
+                    </label>
+                    {selectedBatchFile && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedBatchFile(null)}
+                        style={{ background: 'transparent', border: 'none', color: '#dc2626', fontSize: '11px', cursor: 'pointer', padding: 0 }}
+                      >
+                        Clear file and use text
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    rows={4}
+                    disabled={!!selectedBatchFile}
+                    value={csvInputText}
+                    onChange={(e) => setCsvInputText(e.target.value)}
+                    placeholder="*Barcode,Device name,Organization(CU006INDIA0344:483)&#10;8003152970,Kalakand Display 7.5,CU006INDIA0344:483"
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      border: `1px solid ${c.border}`,
+                      fontSize: '12px',
+                      fontFamily: 'monospace',
+                      backgroundColor: selectedBatchFile ? c.surfaceSubtle : c.surface,
+                      color: c.text,
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                {/* Import Action Button */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={handleProcessCsv}
+                    disabled={isProcessingCsv}
+                    style={{
+                      backgroundColor: isProcessingCsv ? c.surfaceSubtle : c.primary,
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '9px 18px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: isProcessingCsv ? 'not-allowed' : 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {isProcessingCsv ? (
+                      <>
+                        <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                        <span>Processing Batch Sheet...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload size={14} />
+                        <span>Execute Batch Import & Device Sync</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Results Display */}
+                {csvProcessResult && (
+                  <div
+                    style={{
+                      marginTop: '10px',
+                      padding: '12px',
+                      borderRadius: '6px',
+                      backgroundColor: csvProcessResult.success ? '#ecfdf5' : '#fef2f2',
+                      border: `1px solid ${csvProcessResult.success ? '#a7f3d0' : '#fecaca'}`,
+                      fontSize: '12px',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, color: csvProcessResult.success ? '#065f46' : '#991b1b', marginBottom: '4px' }}>
+                      {csvProcessResult.success ? '✓ Batch Processing Completed' : '⚠ Batch Processing Failed'}
+                    </div>
+                    <div>{csvProcessResult.message || csvProcessResult.error}</div>
+                    {csvProcessResult.results && (
+                      <div style={{ marginTop: '8px', maxHeight: '120px', overflowY: 'auto' }}>
+                        {csvProcessResult.results.map((r: any, idx: number) => (
+                          <div key={idx} style={{ fontSize: '11px', fontFamily: 'monospace', color: c.textSecondary }}>
+                            [{r.status.toUpperCase()}] Tag {r.barcode}: {r.name || '(unnamed)'} {r.error ? `- ${r.error}` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 2: EXPORT FLEET DEVICES */}
+            {csvModalTab === 'export' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <p style={{ margin: 0, fontSize: '13px', color: c.textSecondary, lineHeight: 1.5 }}>
+                  Download the current live inventory of physical ESL tags in the exact Highlight 3-line format. This file can be edited and re-imported into Highlight ESL Manager or QuickShelf at any time.
+                </p>
+
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                  <a
+                    href={`${API_BASE}/api/highlight/export-devices-csv?token=${encodeURIComponent(authToken || '')}`}
+                    download="Highlight_Device_List_CU006INDIA0344.csv"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      backgroundColor: c.primary,
+                      color: '#ffffff',
+                      textDecoration: 'none',
+                      borderRadius: '6px',
+                      padding: '10px 18px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                    }}
+                  >
+                    <Download size={14} />
+                    <span>Download Official CSV (.csv)</span>
+                  </a>
+
+                  <a
+                    href={`${API_BASE}/api/highlight/export-devices-xlsx?token=${encodeURIComponent(authToken || '')}`}
+                    download="Device_information_format_CU006INDIA0344.xlsx"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      backgroundColor: '#059669',
+                      color: '#ffffff',
+                      textDecoration: 'none',
+                      borderRadius: '6px',
+                      padding: '10px 18px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                    }}
+                  >
+                    <FileSpreadsheet size={14} />
+                    <span>Download Official Excel (.xlsx)</span>
+                  </a>
+                </div>
+
+                <div style={{ backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '12px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: c.text, marginBottom: '6px' }}>
+                    Live Fleet Preview ({highlightDevices.length} Tags):
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ color: c.textMuted, borderBottom: `1px solid ${c.border}` }}>
+                        <th style={{ padding: '4px 8px' }}>*Barcode</th>
+                        <th style={{ padding: '4px 8px' }}>Device Name</th>
+                        <th style={{ padding: '4px 8px' }}>Organization</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {highlightDevices.map((d) => (
+                        <tr key={d.deviceNumber} style={{ borderBottom: `1px solid ${c.border}` }}>
+                          <td style={{ padding: '4px 8px', fontFamily: 'monospace', fontWeight: 600 }}>{d.deviceNumber}</td>
+                          <td style={{ padding: '4px 8px' }}>{d.deviceName || d.skuName || d.deviceNumber}</td>
+                          <td style={{ padding: '4px 8px', color: c.textMuted }}>CU006INDIA0344:483</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: BATCH PRICE & PROMO CAMPAIGN */}
+            {csvModalTab === 'batchPrice' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '12px', fontSize: '12px', color: c.textSecondary }}>
+                  <div style={{ fontWeight: 600, color: c.text, marginBottom: '4px' }}>
+                    Automated Multi-Item Batch Price Updates (Highlight API 4.7 <code style={{ color: c.primary }}>batchUpdateProduct</code>)
+                  </div>
+                  <div>
+                    Apply a synchronized campaign discount or promo badge across all products and physical ESL displays in one atomic call. The Highlight base station will broadcast new price graphics over-the-air.
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: c.text, marginBottom: '6px' }}>
+                      Campaign Discount (% Off)
+                    </label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {[10, 15, 20, 25].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => setBatchSaleDiscount(pct)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            border: `1px solid ${batchSaleDiscount === pct ? c.primary : c.border}`,
+                            backgroundColor: batchSaleDiscount === pct ? c.primaryBg : c.surface,
+                            color: batchSaleDiscount === pct ? c.primary : c.text,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: c.text, marginBottom: '6px' }}>
+                      Promotional E-Paper Badge
+                    </label>
+                    <input
+                      type="text"
+                      value={batchSalePromoTag}
+                      onChange={(e) => setBatchSalePromoTag(e.target.value)}
+                      placeholder="e.g. DIWALI SPECIAL, CLEARANCE"
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: '6px',
+                        border: `1px solid ${c.border}`,
+                        fontSize: '12px',
+                        outline: 'none',
+                        backgroundColor: c.surface,
+                        color: c.text,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={handleApplyBatchSale}
+                    disabled={isApplyingBatchSale}
+                    style={{
+                      backgroundColor: isApplyingBatchSale ? c.surfaceSubtle : c.primary,
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '9px 20px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: isApplyingBatchSale ? 'not-allowed' : 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                    }}
+                  >
+                    {isApplyingBatchSale ? (
+                      <>
+                        <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                        <span>Broadcasting Batch Update to Fleet...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap size={14} />
+                        <span>Broadcast {batchSaleDiscount}% Campaign via batchUpdateProduct</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {batchSaleResult && (
+                  <div
+                    style={{
+                      marginTop: '10px',
+                      padding: '12px',
+                      borderRadius: '6px',
+                      backgroundColor: batchSaleResult.success ? '#ecfdf5' : '#fef2f2',
+                      border: `1px solid ${batchSaleResult.success ? '#a7f3d0' : '#fecaca'}`,
+                      fontSize: '12px',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, color: batchSaleResult.success ? '#065f46' : '#991b1b' }}>
+                      {batchSaleResult.success ? '✓ Batch Campaign Dispatched' : '⚠ Dispatch Failed'}
+                    </div>
+                    <div>{batchSaleResult.message || batchSaleResult.error}</div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

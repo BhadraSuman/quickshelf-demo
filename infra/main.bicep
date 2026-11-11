@@ -1,6 +1,9 @@
 @description('Azure deployment region. Defaults to Central India (Pune) per SOW.')
 param location string = 'centralindia'
 
+@description('Location for PostgreSQL Flexible Server where Burstable SKUs are available')
+param dbLocation string = 'southeastasia'
+
 @description('Environment name prefix (e.g. prod, staging, dev)')
 @allowed([
   'prod'
@@ -22,17 +25,32 @@ param dbAdminPassword string
 @description('Docker image tag to deploy')
 param imageTag string = 'latest'
 
+@description('Highlight ESL Cloud App Key')
+param highlightAppKey string = '21186651'
+
+@description('Highlight ESL Cloud App Secret')
+@secure()
+param highlightAppSecret string = ''
+
+@description('Highlight ESL Cloud API Endpoint')
+param highlightEndpoint string = 'http://www.electronicshelflabel.cn:8082/api/handle'
+
+@description('Highlight ESL Organization Code')
+param highlightOrgCode string = 'CU006INDIA0344'
+
+// Fallback to default Highlight secret if not supplied
+var effectiveHighlightSecret = empty(highlightAppSecret) ? '67c08468b185468ea5326fe26def69ef' : highlightAppSecret
+
 // Resource naming convention: <type>-<project>-<env>-<location>
 var suffix = '${projectName}-${environment}'
 var logAnalyticsName = 'log-${suffix}'
 var containerRegistryName = 'cr${projectName}${environment}'
 var containerAppsEnvName = 'cae-${suffix}'
-var postgresServerName = 'psql-${suffix}'
+var postgresServerName = 'psql-${suffix}-db'
 var postgresDbName = 'quickshelf'
-var redisName = 'redis-${suffix}'
 var staticWebAppName = 'stapp-${suffix}'
 
-// 1. Log Analytics Workspace for centralized telemetry & 180-day log retention (CERT-In)
+// 1. Log Analytics Workspace for centralized telemetry
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: logAnalyticsName
   location: location
@@ -40,7 +58,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
     sku: {
       name: 'PerGB2018'
     }
-    retentionInDays: 180 // Complies with SOW CERT-In 180-day security log directive
+    retentionInDays: 30
   }
 }
 
@@ -56,28 +74,10 @@ resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' =
   }
 }
 
-// 3. Azure Cache for Redis
-resource redisCache 'Microsoft.Cache/redis@2023-08-01' = {
-  name: redisName
-  location: location
-  properties: {
-    sku: {
-      name: 'Basic'
-      family: 'C'
-      capacity: 0 // C0 (250MB) for dev/pilot, scalable to C1/C2
-    }
-    enableNonSslPort: false
-    minimumTlsVersion: '1.2'
-    redisConfiguration: {
-      'maxmemory-policy': 'volatile-lru'
-    }
-  }
-}
-
-// 4. Azure Database for PostgreSQL Flexible Server
+// 3. Azure Database for PostgreSQL Flexible Server (Burstable B2s for Central India)
 resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-preview' = {
   name: postgresServerName
-  location: location
+  location: dbLocation
   sku: {
     name: 'Standard_B1ms'
     tier: 'Burstable'
@@ -91,7 +91,7 @@ resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-pr
       autoGrow: 'Enabled'
     }
     backup: {
-      backupRetentionDays: 14
+      backupRetentionDays: 7
       geoRedundantBackup: 'Disabled'
     }
     highAvailability: {
@@ -119,7 +119,7 @@ resource postgresDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2
   }
 }
 
-// 5. Azure Container Apps Environment (VNet managed)
+// 4. Azure Container Apps Environment (VNet managed)
 resource containerAppsEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: containerAppsEnvName
   location: location
@@ -134,13 +134,12 @@ resource containerAppsEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
-// Connection Strings constructed dynamically
+// Dynamic Connection Strings
 var acrLoginServer = containerRegistry.properties.loginServer
 var acrPassword = containerRegistry.listCredentials().passwords[0].value
 var databaseUrl = 'postgresql://${dbAdminUser}:${dbAdminPassword}@${postgresServer.properties.fullyQualifiedDomainName}:5432/${postgresDbName}?sslmode=require'
-var redisUrl = 'rediss://:${redisCache.listKeys().primaryKey}@${redisCache.properties.hostName}:${redisCache.properties.sslPort}'
 
-// 6. Container App: quickshelf-api (REST API & Webhooks)
+// 5. Container App: quickshelf-api (REST API & Highlight Cloud Integration)
 resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-${suffix}-api'
   location: location
@@ -157,8 +156,8 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
           value: databaseUrl
         }
         {
-          name: 'redis-url'
-          value: redisUrl
+          name: 'highlight-app-secret'
+          value: effectiveHighlightSecret
         }
       ]
       registries: [
@@ -202,21 +201,33 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
               secretRef: 'database-url'
             }
             {
-              name: 'REDIS_URL'
-              secretRef: 'redis-url'
+              name: 'HIGHLIGHT_APP_KEY'
+              value: highlightAppKey
+            }
+            {
+              name: 'HIGHLIGHT_APP_SECRET'
+              secretRef: 'highlight-app-secret'
+            }
+            {
+              name: 'HIGHLIGHT_ENDPOINT'
+              value: highlightEndpoint
+            }
+            {
+              name: 'HIGHLIGHT_ORG_CODE'
+              value: highlightOrgCode
             }
           ]
         }
       ]
       scale: {
-        minReplicas: 1
-        maxReplicas: 5
+        minReplicas: 0 // Scale down to 0 when idle to conserve Startup credits
+        maxReplicas: 3
         rules: [
           {
             name: 'http-scaling'
             http: {
               metadata: {
-                concurrentRequests: '100'
+                concurrentRequests: '50'
               }
             }
           }
@@ -226,141 +237,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-// 7. Container App: quickshelf-gateway-hub (WebSocket Ingress for Store Gateways)
-resource hubApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'ca-${suffix}-hub'
-  location: location
-  properties: {
-    managedEnvironmentId: containerAppsEnv.id
-    configuration: {
-      secrets: [
-        {
-          name: 'acr-password'
-          value: acrPassword
-        }
-        {
-          name: 'database-url'
-          value: databaseUrl
-        }
-        {
-          name: 'redis-url'
-          value: redisUrl
-        }
-      ]
-      registries: [
-        {
-          server: acrLoginServer
-          username: containerRegistry.name
-          passwordSecretRef: 'acr-password'
-        }
-      ]
-      ingress: {
-        external: true
-        targetPort: 8080
-        transport: 'auto'
-      }
-    }
-    template: {
-      containers: [
-        {
-          name: 'quickshelf-gateway-hub'
-          image: '${acrLoginServer}/quickshelf-gateway-hub:${imageTag}'
-          resources: {
-            cpu: json('0.5')
-            memory: '1.0Gi'
-          }
-          env: [
-            {
-              name: 'NODE_ENV'
-              value: 'production'
-            }
-            {
-              name: 'GATEWAY_HUB_PORT'
-              value: '8080'
-            }
-            {
-              name: 'DATABASE_URL'
-              secretRef: 'database-url'
-            }
-            {
-              name: 'REDIS_URL'
-              secretRef: 'redis-url'
-            }
-          ]
-        }
-      ]
-      scale: {
-        minReplicas: 1
-        maxReplicas: 3
-      }
-    }
-  }
-}
-
-// 8. Container App: quickshelf-sync-engine (Background Reconciliation Worker)
-resource syncEngineApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'ca-${suffix}-engine'
-  location: location
-  properties: {
-    managedEnvironmentId: containerAppsEnv.id
-    configuration: {
-      secrets: [
-        {
-          name: 'acr-password'
-          value: acrPassword
-        }
-        {
-          name: 'database-url'
-          value: databaseUrl
-        }
-        {
-          name: 'redis-url'
-          value: redisUrl
-        }
-      ]
-      registries: [
-        {
-          server: acrLoginServer
-          username: containerRegistry.name
-          passwordSecretRef: 'acr-password'
-        }
-      ]
-      // Zero ingress - completely private internal background worker
-    }
-    template: {
-      containers: [
-        {
-          name: 'quickshelf-sync-engine'
-          image: '${acrLoginServer}/quickshelf-sync-engine:${imageTag}'
-          resources: {
-            cpu: json('0.5')
-            memory: '1.0Gi'
-          }
-          env: [
-            {
-              name: 'NODE_ENV'
-              value: 'production'
-            }
-            {
-              name: 'DATABASE_URL'
-              secretRef: 'database-url'
-            }
-            {
-              name: 'REDIS_URL'
-              secretRef: 'redis-url'
-            }
-          ]
-        }
-      ]
-      scale: {
-        minReplicas: 1
-        maxReplicas: 2
-      }
-    }
-  }
-}
-
-// 9. Azure Static Web Apps (Operations Portal Frontend)
+// 6. Azure Static Web Apps (Operations Portal Frontend - Free Tier)
 resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
   name: staticWebAppName
   location: 'eastasia' // Static Web Apps standard global edge regions: eastasia or westeurope
@@ -376,7 +253,7 @@ resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
 // Outputs
 output acrLoginServer string = acrLoginServer
 output apiUrl string = 'https://${apiApp.properties.configuration.ingress.fqdn}'
-output hubUrl string = 'wss://${hubApp.properties.configuration.ingress.fqdn}'
 output staticWebAppDefaultHostname string = staticWebApp.properties.defaultHostname
+output staticWebAppName string = staticWebApp.name
 output postgresFqdn string = postgresServer.properties.fullyQualifiedDomainName
-output redisHostName string = redisCache.properties.hostName
+output databaseUrl string = databaseUrl

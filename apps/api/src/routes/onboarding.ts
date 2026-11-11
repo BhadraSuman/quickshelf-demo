@@ -144,7 +144,7 @@ export async function registerOnboardingRoutes(app: FastifyInstance) {
       }
 
       return results;
-    });
+    }, { timeout: 30000, maxWait: 10000 });
 
     return reply.status(200).send({
       success: true,
