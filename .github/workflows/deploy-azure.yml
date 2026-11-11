@@ -4,22 +4,74 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'apps/**'
-      - 'packages/**'
-      - 'docker/**'
-      - 'infra/**'
-      - '.github/workflows/deploy-azure.yml'
   workflow_dispatch:
 
 env:
   AZURE_REGION: centralindia
   ACR_NAME: crquickshelfprod
-  RESOURCE_GROUP: rg-quickshelf-prod-centralindia
+  RESOURCE_GROUP: rg-quickshelf-prod
 
 jobs:
   test:
     name: Test & Monorepo Verification
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: qsadmin
+          POSTGRES_PASSWORD: password123
+          POSTGRES_DB: quickshelf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+          run_install: false
+
+      - name: Install Monorepo Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client & Push DB Schema
+        run: |
+          pnpm --filter @quickshelf/db generate
+          pnpm --filter @quickshelf/db exec prisma db push
+        env:
+          DATABASE_URL: "postgresql://qsadmin:password123@localhost:5432/quickshelf?sslmode=disable"
+
+      - name: Typecheck & Build Monorepo Packages
+        run: pnpm build
+
+      - name: Run Test Suite
+        run: pnpm test
+        env:
+          NODE_ENV: test
+          DATABASE_URL: "postgresql://qsadmin:password123@localhost:5432/quickshelf?sslmode=disable"
+          HIGHLIGHT_APP_KEY: "21186651"
+          HIGHLIGHT_APP_SECRET: "67c08468b185468ea5326fe26def69ef"
+          HIGHLIGHT_ENDPOINT: "http://www.electronicshelflabel.cn:8082/api/handle"
+          HIGHLIGHT_ORG_CODE: "CU006INDIA0344"
+
+  deploy-frontend:
+    name: Deploy Operations Portal (Azure Static Web Apps)
+    needs: test
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -42,14 +94,22 @@ jobs:
       - name: Generate Prisma Client
         run: pnpm --filter @quickshelf/db generate
 
-      - name: Typecheck & Build All Packages
-        run: pnpm build
+      - name: Build Dashboard
+        run: pnpm --filter @quickshelf/dashboard build
+        env:
+          VITE_API_BASE: "https://ca-quickshelf-prod-api.kindwater-bf8f7b75.centralindia.azurecontainerapps.io"
 
-      - name: Run Test Suite
-        run: pnpm test
+      - name: Deploy Dashboard to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: 'upload'
+          app_location: 'apps/dashboard/dist'
+          skip_app_build: true
 
-  build-and-deploy:
-    name: Build Containers & Deploy to Azure
+  deploy-backend:
+    name: Build & Deploy REST API (Azure Container Apps)
     needs: test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -65,50 +125,15 @@ jobs:
       - name: Log in to Azure Container Registry
         run: az acr login --name ${{ env.ACR_NAME }}
 
-      - name: Set Image Tag
-        run: echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
-
-      - name: Build & Push quickshelf-api
+      - name: Build & Push quickshelf-api Container
         run: |
-          docker build -t ${{ env.ACR_NAME }}.azurecr.io/quickshelf-api:${{ env.IMAGE_TAG }} -t ${{ env.ACR_NAME }}.azurecr.io/quickshelf-api:latest -f apps/api/Dockerfile .
-          docker push ${{ env.ACR_NAME }}.azurecr.io/quickshelf-api:${{ env.IMAGE_TAG }}
+          docker build -t ${{ env.ACR_NAME }}.azurecr.io/quickshelf-api:${{ github.sha }} -t ${{ env.ACR_NAME }}.azurecr.io/quickshelf-api:latest -f apps/api/Dockerfile .
+          docker push ${{ env.ACR_NAME }}.azurecr.io/quickshelf-api:${{ github.sha }}
           docker push ${{ env.ACR_NAME }}.azurecr.io/quickshelf-api:latest
 
-      - name: Build & Push quickshelf-gateway-hub
-        run: |
-          docker build -t ${{ env.ACR_NAME }}.azurecr.io/quickshelf-gateway-hub:${{ env.IMAGE_TAG }} -t ${{ env.ACR_NAME }}.azurecr.io/quickshelf-gateway-hub:latest -f apps/gateway-hub/Dockerfile .
-          docker push ${{ env.ACR_NAME }}.azurecr.io/quickshelf-gateway-hub:${{ env.IMAGE_TAG }}
-          docker push ${{ env.ACR_NAME }}.azurecr.io/quickshelf-gateway-hub:latest
-
-      - name: Build & Push quickshelf-sync-engine
-        run: |
-          docker build -t ${{ env.ACR_NAME }}.azurecr.io/quickshelf-sync-engine:${{ env.IMAGE_TAG }} -t ${{ env.ACR_NAME }}.azurecr.io/quickshelf-sync-engine:latest -f apps/sync-engine/Dockerfile .
-          docker push ${{ env.ACR_NAME }}.azurecr.io/quickshelf-sync-engine:${{ env.IMAGE_TAG }}
-          docker push ${{ env.ACR_NAME }}.azurecr.io/quickshelf-sync-engine:latest
-
-      - name: Update Azure Container Apps Revisions
+      - name: Update Azure Container App Revision
         run: |
           az containerapp update \
             --name ca-quickshelf-prod-api \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.ACR_NAME }}.azurecr.io/quickshelf-api:${{ env.IMAGE_TAG }}
-
-          az containerapp update \
-            --name ca-quickshelf-prod-hub \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.ACR_NAME }}.azurecr.io/quickshelf-gateway-hub:${{ env.IMAGE_TAG }}
-
-          az containerapp update \
-            --name ca-quickshelf-prod-engine \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.ACR_NAME }}.azurecr.io/quickshelf-sync-engine:${{ env.IMAGE_TAG }}
-
-      - name: Deploy Dashboard to Azure Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: 'upload'
-          app_location: 'apps/dashboard'
-          output_location: 'dist'
-          skip_app_build: false
+            --image ${{ env.ACR_NAME }}.azurecr.io/quickshelf-api:${{ github.sha }}
