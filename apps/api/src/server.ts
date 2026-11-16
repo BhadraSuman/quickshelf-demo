@@ -25,6 +25,13 @@ export async function createServer(): Promise<FastifyInstance> {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
 
+  // Silence noisy CORS OPTIONS preflight logs
+  app.addHook('onRequest', async (request) => {
+    if (request.method === 'OPTIONS') {
+      request.log.level = 'silent';
+    }
+  });
+
   // Global Security Hook: Require valid Bearer JWT / API Key on all protected /api routes
   app.addHook('onRequest', async (request, reply) => {
     if (request.method === 'OPTIONS') return;

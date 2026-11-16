@@ -343,7 +343,8 @@ export default function App() {
   const [apiConnected, setApiConnected] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   // Enterprise Notification System
   const [activeToasts, setActiveToasts] = useState<AppNotification[]>([]);
@@ -488,6 +489,22 @@ export default function App() {
     }
   };
 
+  const handleManualRefresh = async () => {
+    if (isManualRefreshing || isFetchingRef.current) return;
+    setIsManualRefreshing(true);
+    try {
+      await fetchData();
+      if (activeTab === 'audit' || activeTab === 'overview') {
+        await fetchAuditLogs();
+      }
+      showToast('Live fleet & cloud data refreshed.');
+    } catch {
+      showToast('Failed to refresh data.');
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  };
+
   const fetchAuditLogs = async () => {
     try {
       const res = await apiFetch(`${API_BASE}/api/audit`);
@@ -495,19 +512,10 @@ export default function App() {
     } catch {}
   };
 
+  // Initial mount data load only (manual refresh on demand thereafter)
   useEffect(() => {
     fetchData();
   }, []);
-
-  useEffect(() => {
-    if (!autoRefresh) return;
-    // Graceful 10-second polling cycle, paused when browser tab is inactive
-    const interval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      fetchData();
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [autoRefresh]);
 
   useEffect(() => {
     if (activeTab === 'audit' || activeTab === 'overview') fetchAuditLogs();
@@ -1847,26 +1855,27 @@ export default function App() {
               <span>{highlightStatus?.connected ? 'Cloud Online' : 'Cloud Offline'}</span>
             </div>
 
-            {/* Quick Refresh Icon */}
+            {/* Quick Refresh Icon (Manual On-Demand) */}
             <button
-              onClick={fetchData}
-              title="Refresh live data"
+              onClick={handleManualRefresh}
+              disabled={isManualRefreshing}
+              title="Manual refresh live data on demand"
               style={{
                 background: 'transparent',
                 border: `1px solid ${c.border}`,
-                color: c.textMuted,
+                color: isManualRefreshing ? c.primary : c.textMuted,
                 padding: '6px',
                 borderRadius: '6px',
-                cursor: 'pointer',
+                cursor: isManualRefreshing ? 'wait' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 transition: 'all 0.15s ease',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.color = c.text; e.currentTarget.style.borderColor = c.borderStrong; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = c.textMuted; e.currentTarget.style.borderColor = c.border; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = isManualRefreshing ? c.primary : c.textMuted; e.currentTarget.style.borderColor = c.border; }}
             >
-              <RefreshCw size={13} />
+              <RefreshCw size={13} style={{ transform: isManualRefreshing ? 'rotate(180deg)' : 'none', transition: 'transform 0.4s ease' }} />
             </button>
 
             {/* Notifications Bell */}
