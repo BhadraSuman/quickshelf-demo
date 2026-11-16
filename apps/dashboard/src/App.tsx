@@ -248,10 +248,10 @@ export default function App() {
   // User Profile & System Settings State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'profile' | 'hardware' | 'guardrails'>('profile');
-  const [userName, setUserName] = useState(() => localStorage.getItem('qs_user_name') || 'Suman Saurav');
-  const [userEmail, setUserEmail] = useState(() => localStorage.getItem('qs_user_email') || 'operations@quickshelf.io');
-  const [userRole, setUserRole] = useState(() => localStorage.getItem('qs_user_role') || 'Store Operations Lead');
-  const [userStore, setUserStore] = useState(() => localStorage.getItem('qs_user_store') || 'Store 001 - Main Supermarket');
+  const [userName, setUserName] = useState(() => localStorage.getItem('qs_user_name') || '');
+  const [userEmail, setUserEmail] = useState(() => localStorage.getItem('qs_user_email') || '');
+  const [userRole, setUserRole] = useState(() => localStorage.getItem('qs_user_role') || 'SUPER_ADMIN');
+  const [userStore, setUserStore] = useState(() => localStorage.getItem('qs_user_store') || '');
   const [rfRegion, setRfRegion] = useState(() => localStorage.getItem('qs_rf_region') || '865 - 868 MHz (India WPC Sub-GHz)');
   const [guardrailStrict, setGuardrailStrict] = useState(true);
   const [lowBatteryAlertPct, setLowBatteryAlertPct] = useState('20');
@@ -326,8 +326,7 @@ export default function App() {
   const [isApplyingBatchSale, setIsApplyingBatchSale] = useState(false);
   const [batchSaleResult, setBatchSaleResult] = useState<any>(null);
 
-  // Multi-tenant Scope Selector
-  const [selectedOrg, setSelectedOrg] = useState('Acme Retail Chain');
+  // Multi-tenant Store Filter
   const [selectedStoreFilter, setSelectedStoreFilter] = useState('ALL');
 
   // Core Data State
@@ -463,6 +462,23 @@ export default function App() {
       if (skusRes.ok) setSkus(await skusRes.json());
       if (chaosRes.ok) setChaos(await chaosRes.json());
       await fetchHighlightData();
+
+      // Fetch authentic user profile
+      try {
+        const meRes = await apiFetch(`${API_BASE}/api/auth/me`);
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          if (meData.user) {
+            const displayName = meData.user.name || meData.user.email;
+            setUserName(displayName);
+            setUserEmail(meData.user.email);
+            setUserRole(meData.user.role);
+            localStorage.setItem('qs_user_name', displayName);
+            localStorage.setItem('qs_user_email', meData.user.email);
+            localStorage.setItem('qs_user_role', meData.user.role);
+          }
+        }
+      } catch {}
     } catch {
       setApiConnected(false);
     } finally {
@@ -1541,11 +1557,11 @@ export default function App() {
           {(() => {
             const totalLabelsCount = highlightStatus?.connected && highlightDevices.length > 0 
               ? highlightDevices.length 
-              : (fleet ? fleet.totalTags : 10);
+              : (fleet ? fleet.totalTags : tags.length);
             const divergedCount = fleet ? fleet.divergedTags : blinkingTagIds.size;
-            const fleetHealthPct = fleet 
-              ? `${fleet.convergencePct.toFixed(1)}%` 
-              : (divergedCount > 0 ? `${(((totalLabelsCount - divergedCount) / totalLabelsCount) * 100).toFixed(1)}%` : '100.0%');
+            const fleetHealthPct = totalLabelsCount > 0
+              ? (fleet ? `${fleet.convergencePct.toFixed(1)}%` : `${(((Math.max(0, totalLabelsCount - divergedCount)) / totalLabelsCount) * 100).toFixed(1)}%`)
+              : 'N/A';
 
             return sidebarCollapsed ? (
               <div
@@ -1754,194 +1770,189 @@ export default function App() {
           MAIN WORKSPACE CONTENT AREA
       ========================================================================== */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
-        {/* Top Header Bar */}
+        {/* Compact Professional Header Bar */}
         <header
           style={{
             backgroundColor: c.surface,
             borderBottom: `1px solid ${c.border}`,
-            padding: '12px 28px',
+            padding: '8px 24px',
+            minHeight: '52px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             position: 'sticky',
             top: 0,
             zIndex: 30,
+            boxSizing: 'border-box',
           }}
         >
-          {/* Organization & Store Switcher */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: c.surfaceSubtle, padding: '6px 12px', borderRadius: '8px', border: `1px solid ${c.border}`, fontSize: '12px', whiteSpace: 'nowrap' }}>
-              <span style={{ color: c.textMuted }}>Retailer:</span>
-              <select
-                value={selectedOrg}
-                onChange={(e) => setSelectedOrg(e.target.value)}
-                style={{ background: 'transparent', border: 'none', color: c.text, fontWeight: 700, cursor: 'pointer' }}
-              >
-                <option value="Acme Retail Chain">Acme Retail Chain (28 Stores)</option>
-                <option value="More Supermarkets">More Supermarkets (14 Stores)</option>
-                <option value="Apollo Pharmacy">Apollo Pharmacy (45 Stores)</option>
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: c.surfaceSubtle, padding: '6px 12px', borderRadius: '8px', border: `1px solid ${c.border}`, fontSize: '12px', whiteSpace: 'nowrap' }}>
-              <Store size={14} color={c.primaryHover} />
-              <select
-                value={selectedStoreFilter}
-                onChange={(e) => setSelectedStoreFilter(e.target.value)}
-                style={{ background: 'transparent', border: 'none', color: c.primaryHover, fontWeight: 700, cursor: 'pointer' }}
-              >
-                <option value="ALL">All Network Stores</option>
-                {stores.map((s) => (
-                  <option key={s.id} value={s.name}>
-                    {s.name} ({s.city})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Cloud Broker Badge & Quick Actions */}
+          {/* Left: Active Location & Store Context */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Highlight Cloud Broker Badge */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                backgroundColor: '#ecfdf5',
-                border: '1px solid #a7f3d0',
-                padding: '5px 12px',
-                borderRadius: '20px',
+                gap: '7px',
+                backgroundColor: c.surfaceSubtle,
+                padding: '5px 10px',
+                borderRadius: '6px',
+                border: `1px solid ${c.border}`,
+                fontSize: '12px',
+              }}
+            >
+              <Store size={14} color={c.primary} />
+              {stores.length === 0 ? (
+                <span style={{ color: c.textMuted }}>No stores loaded</span>
+              ) : stores.length === 1 ? (
+                <span style={{ fontWeight: 700, color: c.text }}>
+                  {stores[0].name} <span style={{ fontWeight: 500, color: c.textMuted }}>({stores[0].city})</span>
+                </span>
+              ) : (
+                <select
+                  value={selectedStoreFilter}
+                  onChange={(e) => setSelectedStoreFilter(e.target.value)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: c.text,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    outline: 'none',
+                  }}
+                >
+                  <option value="ALL">All Network Stores ({stores.length})</option>
+                  {stores.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name} ({s.city})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <span
+              style={{
                 fontSize: '11px',
+                fontWeight: 700,
+                color: c.textMuted,
+                backgroundColor: c.surfaceSubtle,
+                padding: '4px 8px',
+                borderRadius: '6px',
+                border: `1px solid ${c.border}`,
                 fontFamily: 'monospace',
-                color: '#065f46',
+              }}
+            >
+              ORG: {highlightStatus?.orgCode || 'CU006INDIA0344'}
+            </span>
+          </div>
+
+          {/* Right: Cloud Status, Refresh, Notifications, Profile & Sign Out */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Real Hardware Cloud Status Dot */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: highlightStatus?.connected ? c.success : c.error,
+                backgroundColor: highlightStatus?.connected ? c.successBg : c.errorBg,
+                border: `1px solid ${highlightStatus?.connected ? 'rgba(5,150,105,0.2)' : 'rgba(220,38,38,0.2)'}`,
+                padding: '4px 10px',
+                borderRadius: '12px',
                 whiteSpace: 'nowrap',
               }}
+              title={highlightStatus?.connected ? 'Highlight Cloud Hardware Gateway Connected' : (highlightStatus?.error || 'Highlight Cloud Offline')}
             >
               <span
                 style={{
-                  width: '7px',
-                  height: '7px',
+                  width: '6px',
+                  height: '6px',
                   borderRadius: '50%',
-                  backgroundColor: highlightStatus?.connected ? c.success : c.warning,
+                  backgroundColor: highlightStatus?.connected ? c.success : c.error,
                 }}
               />
-              <span style={{ fontWeight: 700 }}>
-                Highlight Cloud ({highlightStatus?.orgCode || 'CU006INDIA0344'})
-              </span>
-              <span>•</span>
-              <span>{highlightStatus?.apCount ?? 1} AP</span>
-              <span>•</span>
-              <span>{highlightStatus?.deviceCount ?? highlightDevices.length} Tags</span>
+              <span>{highlightStatus?.connected ? 'Cloud Online' : 'Cloud Offline'}</span>
             </div>
 
-            {/* Sync from Highlight Action */}
-            <button
-              onClick={handleSyncHighlight}
-              disabled={syncingHighlight}
-              style={{
-                background: syncingHighlight ? c.surfaceSubtle : '#ecfdf5',
-                border: '1px solid #a7f3d0',
-                color: '#065f46',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                fontSize: '12px',
-                fontWeight: 700,
-                cursor: syncingHighlight ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-              }}
-              title="Sync live AP stations, tags, and templates from Highlight Cloud API"
-            >
-              <RefreshCw
-                size={13}
-                style={{ animation: syncingHighlight ? 'spin 1s linear infinite' : 'none' }}
-              />
-              <span>{syncingHighlight ? 'Syncing...' : 'Sync Highlight'}</span>
-            </button>
-
-            {/* Live Refresh Button */}
+            {/* Quick Refresh Icon */}
             <button
               onClick={fetchData}
+              title="Refresh live data"
               style={{
-                background: c.surfaceSubtle,
+                background: 'transparent',
                 border: `1px solid ${c.border}`,
-                color: c.text,
-                padding: '6px 12px',
-                borderRadius: '8px',
-                fontSize: '12px',
-                fontWeight: 600,
+                color: c.textMuted,
+                padding: '6px',
+                borderRadius: '6px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease',
               }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = c.text; e.currentTarget.style.borderColor = c.borderStrong; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = c.textMuted; e.currentTarget.style.borderColor = c.border; }}
             >
-              <RefreshCw size={13} /> Refresh
+              <RefreshCw size={13} />
             </button>
 
-            {/* Activity Notifications Bell */}
-            <div style={{ position: 'relative' }}>
-              <button
-                onClick={() => {
-                  setShowNotificationCenter((prev) => !prev);
-                  setUnreadNotifications(0);
-                }}
-                style={{
-                  position: 'relative',
-                  background: showNotificationCenter ? c.primaryBg : c.surfaceSubtle,
-                  border: `1px solid ${showNotificationCenter ? c.primary : c.border}`,
-                  color: showNotificationCenter ? c.primary : c.text,
-                  padding: '7px 9px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                title={`Activity & System Notifications (${notificationHistory.length} logged)`}
-              >
-                <Bell size={15} />
-                {unreadNotifications > 0 && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      top: '-4px',
-                      right: '-4px',
-                      backgroundColor: '#dc2626',
-                      color: '#ffffff',
-                      borderRadius: '10px',
-                      padding: '1px 5px',
-                      fontSize: '9px',
-                      fontWeight: 800,
-                      minWidth: '16px',
-                      textAlign: 'center',
-                      boxShadow: '0 0 6px rgba(220, 38, 38, 0.6)',
-                    }}
-                  >
-                    {unreadNotifications > 9 ? '9+' : unreadNotifications}
-                  </span>
-                )}
-              </button>
-            </div>
+            {/* Notifications Bell */}
+            <button
+              onClick={() => {
+                setShowNotificationCenter((prev) => !prev);
+                setUnreadNotifications(0);
+              }}
+              style={{
+                position: 'relative',
+                background: showNotificationCenter ? c.primaryBg : 'transparent',
+                border: `1px solid ${showNotificationCenter ? c.primary : c.border}`,
+                color: showNotificationCenter ? c.primary : c.textMuted,
+                padding: '6px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease',
+              }}
+              title={`Notifications (${notificationHistory.length})`}
+            >
+              <Bell size={13} />
+              {unreadNotifications > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '-3px',
+                    right: '-3px',
+                    backgroundColor: c.error,
+                    color: '#ffffff',
+                    borderRadius: '10px',
+                    padding: '0 4px',
+                    fontSize: '8.5px',
+                    fontWeight: 800,
+                    minWidth: '14px',
+                    textAlign: 'center',
+                  }}
+                >
+                  {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                </span>
+              )}
+            </button>
 
-            {/* User Profile */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '6px' }}>
+            {/* User Profile & Sign Out */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderLeft: `1px solid ${c.border}`, paddingLeft: '10px', marginLeft: '4px' }}>
               <div
                 onClick={() => setShowSettingsModal(true)}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
-                title="Click to open User Settings & Preferences"
+                style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer' }}
+                title="Account Settings"
               >
-                <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
-                  <div style={{ fontSize: '12px', fontWeight: 700, color: c.text }}>{userName}</div>
-                  <div style={{ fontSize: '10px', color: c.primaryHover, fontWeight: 600 }}>{userRole}</div>
-                </div>
                 <div
                   style={{
-                    width: '32px',
-                    height: '32px',
+                    width: '26px',
+                    height: '26px',
                     borderRadius: '50%',
                     backgroundColor: c.primary,
                     color: '#ffffff',
@@ -1949,35 +1960,44 @@ export default function App() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontWeight: 800,
-                    fontSize: '11px',
+                    fontSize: '10.5px',
                   }}
                 >
-                  {userName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'OP'}
+                  {(userName ? userName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() : 'AD')}
+                </div>
+                <div style={{ lineHeight: 1.15, maxWidth: '110px', overflow: 'hidden' }}>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700, color: c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {userName || userEmail || 'Administrator'}
+                  </div>
+                  <div style={{ fontSize: '9.5px', color: c.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {userRole || 'SUPER_ADMIN'}
+                  </div>
                 </div>
               </div>
 
-              {/* Sign Out Action Button */}
               <button
                 type="button"
                 onClick={handleLogout}
-                title="Sign out of QuickShelf"
+                title="Sign Out"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '5px',
-                  padding: '6px 10px',
-                  borderRadius: '7px',
-                  backgroundColor: '#fef2f2',
-                  border: '1px solid #fecaca',
-                  color: '#dc2626',
+                  gap: '4px',
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  backgroundColor: 'transparent',
+                  border: `1px solid ${c.border}`,
+                  color: c.textMuted,
                   fontSize: '11px',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  marginLeft: '4px',
+                  transition: 'all 0.15s ease',
                 }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = c.error; e.currentTarget.style.borderColor = '#fca5a5'; e.currentTarget.style.backgroundColor = '#fef2f2'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = c.textMuted; e.currentTarget.style.borderColor = c.border; e.currentTarget.style.backgroundColor = 'transparent'; }}
               >
-                <LogOut size={13} />
-                <span>Sign Out</span>
+                <LogOut size={12} />
+                <span>Exit</span>
               </button>
             </div>
           </div>

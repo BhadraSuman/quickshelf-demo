@@ -6,19 +6,13 @@ import {
   FileText,
   BookOpen,
   ArrowRight,
-  CheckCircle2,
-  AlertTriangle,
-  Zap,
-  TrendingUp,
   RefreshCw,
   BatteryCharging,
-  Wifi,
   Package,
-  Layers,
   Activity,
   ShieldCheck,
-  Server,
   Clock,
+  AlertCircle,
 } from 'lucide-react';
 import type {
   HighlightStatus,
@@ -50,6 +44,10 @@ interface OverviewHomeViewProps {
     firmware: string;
     status: 'ONLINE' | 'OFFLINE' | 'DEGRADED';
     tagCount: number;
+    store?: {
+      name: string;
+      city: string;
+    };
   }>;
   auditLogs: Array<{
     id: string;
@@ -104,25 +102,27 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
     errorBg: '#fef2f2',
   };
 
-  // Fleet Calculations
+  // Real Fleet Metrics
   const physicalCount = highlightDevices.length;
   const virtualCount = fleetStatus?.totalTags || 0;
-  const totalFleetSize = physicalCount > 0 ? physicalCount : (virtualCount > 0 ? virtualCount : 10);
+  const totalFleetSize = physicalCount > 0 ? physicalCount : virtualCount;
   
   const divergedCount = fleetStatus?.divergedTags || 0;
-  const convergedCount = totalFleetSize - divergedCount;
-  const convergencePct = Math.min(100, Math.max(0, Math.round((convergedCount / totalFleetSize) * 100)));
+  const convergedCount = totalFleetSize > 0 ? Math.max(0, totalFleetSize - divergedCount) : 0;
+  const convergencePct = totalFleetSize > 0
+    ? Math.min(100, Math.max(0, Math.round((convergedCount / totalFleetSize) * 100)))
+    : 0;
 
-  // Battery distribution from devices
+  // Real Battery Telemetry from physical tags
   const batteryStats = useMemo(() => {
     if (highlightDevices.length === 0) {
-      return { high: 8, normal: 2, low: 0, highPct: 80, normalPct: 20, lowPct: 0 };
+      return { high: 0, normal: 0, low: 0, highPct: 0, normalPct: 0, lowPct: 0, hasData: false };
     }
     let high = 0;
     let normal = 0;
     let low = 0;
     highlightDevices.forEach((d) => {
-      const p = d.powerLevel ?? 5;
+      const p = d.powerLevel ?? 0;
       if (p >= 4) high++;
       else if (p >= 2) normal++;
       else low++;
@@ -135,33 +135,48 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
       highPct: Math.round((high / total) * 100),
       normalPct: Math.round((normal / total) * 100),
       lowPct: Math.round((low / total) * 100),
+      hasData: true,
     };
   }, [highlightDevices]);
 
-  // Online gateways
-  const onlineAps = gateways.filter((g) => g.status === 'ONLINE').length;
-  const totalAps = gateways.length > 0 ? gateways.length : 1;
+  // Real Base Station Gateways count
+  const isHighlightOnline = Boolean(highlightStatus?.connected);
+  const onlineAps = gateways.filter((g) => g.status === 'ONLINE').length + (isHighlightOnline ? 1 : 0);
+  const totalAps = gateways.length + (isHighlightOnline ? 1 : 0);
 
-  // Mock 24h Activity Data points for the chart
-  const activityData = useMemo(() => [
-    { hour: '00:00', updates: 12, rfPackets: 28 },
-    { hour: '04:00', updates: 8, rfPackets: 19 },
-    { hour: '08:00', updates: 65, rfPackets: 180 },
-    { hour: '10:00', updates: 120, rfPackets: 340 },
-    { hour: '12:00', updates: 95, rfPackets: 260 },
-    { hour: '14:00', updates: 70, rfPackets: 210 },
-    { hour: '16:00', updates: 145, rfPackets: 420 },
-    { hour: '18:00', updates: 185, rfPackets: 510 },
-    { hour: '20:00', updates: 80, rfPackets: 230 },
-    { hour: '22:00', updates: 30, rfPackets: 75 },
-  ], []);
+  // Real Activity points derived strictly from real auditLogs
+  const activityData = useMemo(() => {
+    if (!auditLogs || auditLogs.length === 0) return [];
 
-  // SVG Chart Geometry
+    // Group real audit logs by hour
+    const countsByHour: Record<string, number> = {};
+    auditLogs.forEach((log) => {
+      const rawDate = log.createdAt || log.timestamp;
+      if (!rawDate) return;
+      try {
+        const d = new Date(rawDate);
+        const hour = `${String(d.getHours()).padStart(2, '0')}:00`;
+        countsByHour[hour] = (countsByHour[hour] || 0) + 1;
+      } catch {}
+    });
+
+    const hours = Object.keys(countsByHour).sort();
+    if (hours.length === 0) return [];
+
+    return hours.map((hour) => ({
+      hour,
+      updates: countsByHour[hour],
+    }));
+  }, [auditLogs]);
+
+  // SVG Chart Geometry for real activity
   const chartHeight = 140;
   const chartWidth = 500;
-  const maxVal = 200;
+  const maxVal = Math.max(...activityData.map((d) => d.updates), 5);
   const points = activityData.map((d, i) => {
-    const x = (i / (activityData.length - 1)) * (chartWidth - 40) + 20;
+    const x = activityData.length > 1
+      ? (i / (activityData.length - 1)) * (chartWidth - 50) + 25
+      : chartWidth / 2;
     const y = chartHeight - 25 - (d.updates / maxVal) * (chartHeight - 45);
     return { x, y, ...d };
   });
@@ -170,15 +185,17 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
     return i === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
   }, '');
 
-  const areaD = `${pathD} L ${points[points.length - 1].x} ${chartHeight - 20} L ${points[0].x} ${chartHeight - 20} Z`;
+  const areaD = points.length > 1
+    ? `${pathD} L ${points[points.length - 1].x} ${chartHeight - 20} L ${points[0].x} ${chartHeight - 20} Z`
+    : '';
 
-  // Donut chart stroke math (Circumference = 2 * pi * 40 = 251.32)
+  // Donut chart stroke math (Circumference = 2 * pi * 38 = 238.76)
   const radius = 38;
   const circumference = 2 * Math.PI * radius;
-  const convergedStroke = (convergencePct / 100) * circumference;
+  const convergedStroke = totalFleetSize > 0 ? (convergencePct / 100) * circumference : 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* 1. Header Banner */}
       <div
         style={{
@@ -186,12 +203,12 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: '16px',
+          gap: '14px',
           backgroundColor: c.surface,
           border: `1px solid ${c.border}`,
-          borderRadius: '14px',
-          padding: '20px 24px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+          borderRadius: '12px',
+          padding: '18px 22px',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
         }}
       >
         <div>
@@ -213,14 +230,14 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
             </span>
             <span style={{ fontSize: '12px', color: c.textMuted }}>•</span>
             <span style={{ fontSize: '12px', color: c.textMuted, fontWeight: 600 }}>
-              Organization: <strong style={{ color: c.text }}>CU006INDIA0344</strong>
+              Organization: <strong style={{ color: c.text }}>{highlightStatus?.orgCode || 'CU006INDIA0344'}</strong>
             </span>
           </div>
-          <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 800, color: c.text }}>
-            Operations & Fleet Overview
+          <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: c.text }}>
+            Fleet & Operations Overview
           </h1>
-          <p style={{ margin: '4px 0 0', color: c.textMuted, fontSize: '13px' }}>
-            Central monitoring for physical electronic shelf labels, Base Station APs, and real-time catalog pricing.
+          <p style={{ margin: '3px 0 0', color: c.textMuted, fontSize: '13px' }}>
+            Live status of electronic shelf labels, Base Station APs, and catalog pricing.
           </p>
         </div>
 
@@ -234,17 +251,16 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
                 color: c.text,
                 border: `1px solid ${c.borderStrong}`,
                 borderRadius: '8px',
-                padding: '9px 14px',
+                padding: '8px 14px',
                 fontSize: '12px',
                 fontWeight: 600,
                 cursor: isSyncing ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '7px',
-                transition: 'background 0.15s ease',
               }}
             >
-              <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+              <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
               {isSyncing ? 'Syncing...' : 'Sync Fleet'}
             </button>
           )}
@@ -256,17 +272,16 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
               color: '#ffffff',
               border: 'none',
               borderRadius: '8px',
-              padding: '9px 16px',
+              padding: '8px 14px',
               fontSize: '12px',
               fontWeight: 700,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              boxShadow: '0 2px 4px rgba(37,99,235,0.2)',
             }}
           >
-            <DollarSign size={14} /> Push Price Update
+            <DollarSign size={14} /> Update Prices
           </button>
         </div>
       </div>
@@ -275,8 +290,8 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
-          gap: '16px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '14px',
         }}
       >
         {/* Card 1: Total Fleet */}
@@ -286,26 +301,20 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
             backgroundColor: c.surface,
             border: `1px solid ${c.border}`,
             borderRadius: '12px',
-            padding: '18px',
+            padding: '16px',
             cursor: 'pointer',
-            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+            transition: 'border-color 0.15s ease',
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = c.primary;
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = c.border;
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = c.primary; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = c.border; }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: c.textMuted }}>TOTAL ESL FLEET</span>
+            <span style={{ fontSize: '11.5px', fontWeight: 600, color: c.textMuted }}>TOTAL ESL FLEET</span>
             <div
               style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
+                width: '30px',
+                height: '30px',
+                borderRadius: '7px',
                 backgroundColor: c.primaryBg,
                 color: c.primary,
                 display: 'flex',
@@ -313,18 +322,18 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
                 justifyContent: 'center',
               }}
             >
-              <Cpu size={16} />
+              <Cpu size={15} />
             </div>
           </div>
-          <div style={{ marginTop: '12px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <span style={{ fontSize: '28px', fontWeight: 800, color: c.text }}>{totalFleetSize}</span>
-            <span style={{ fontSize: '12px', color: c.success, fontWeight: 700 }}>
-              ● 100% Online
+          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ fontSize: '26px', fontWeight: 800, color: c.text }}>{totalFleetSize}</span>
+            <span style={{ fontSize: '12px', color: totalFleetSize > 0 ? c.success : c.textMuted, fontWeight: 700 }}>
+              {totalFleetSize > 0 ? '● Active' : 'No tags'}
             </span>
           </div>
-          <div style={{ marginTop: '8px', fontSize: '11.5px', color: c.textMuted, display: 'flex', justifyContent: 'space-between' }}>
-            <span>{physicalCount} Highlight Hardware Tags</span>
-            <ArrowRight size={13} color={c.textMuted} />
+          <div style={{ marginTop: '6px', fontSize: '11px', color: c.textMuted, display: 'flex', justifyContent: 'space-between' }}>
+            <span>{physicalCount > 0 ? `${physicalCount} Physical Tags` : '0 physical tags'}</span>
+            <ArrowRight size={12} color={c.textMuted} />
           </div>
         </div>
 
@@ -335,26 +344,20 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
             backgroundColor: c.surface,
             border: `1px solid ${c.border}`,
             borderRadius: '12px',
-            padding: '18px',
+            padding: '16px',
             cursor: 'pointer',
-            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+            transition: 'border-color 0.15s ease',
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = c.success;
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = c.border;
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = c.success; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = c.border; }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: c.textMuted }}>FLEET CONVERGENCE</span>
+            <span style={{ fontSize: '11.5px', fontWeight: 600, color: c.textMuted }}>FLEET CONVERGENCE</span>
             <div
               style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
+                width: '30px',
+                height: '30px',
+                borderRadius: '7px',
                 backgroundColor: c.successBg,
                 color: c.success,
                 display: 'flex',
@@ -362,18 +365,20 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
                 justifyContent: 'center',
               }}
             >
-              <ShieldCheck size={16} />
+              <ShieldCheck size={15} />
             </div>
           </div>
-          <div style={{ marginTop: '12px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <span style={{ fontSize: '28px', fontWeight: 800, color: c.success }}>{convergencePct}%</span>
+          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ fontSize: '26px', fontWeight: 800, color: totalFleetSize > 0 ? c.success : c.textMuted }}>
+              {totalFleetSize > 0 ? `${convergencePct}%` : 'N/A'}
+            </span>
             <span style={{ fontSize: '12px', color: divergedCount > 0 ? c.warning : c.textMuted, fontWeight: 600 }}>
-              {divergedCount > 0 ? `${divergedCount} Pending` : 'All Labels In Sync'}
+              {divergedCount > 0 ? `${divergedCount} Pending` : (totalFleetSize > 0 ? 'In Sync' : 'No Labels')}
             </span>
           </div>
-          <div style={{ marginTop: '8px', fontSize: '11.5px', color: c.textMuted, display: 'flex', justifyContent: 'space-between' }}>
-            <span>{convergedCount} tags showing exact POS price</span>
-            <ArrowRight size={13} color={c.textMuted} />
+          <div style={{ marginTop: '6px', fontSize: '11px', color: c.textMuted, display: 'flex', justifyContent: 'space-between' }}>
+            <span>{totalFleetSize > 0 ? `${convergedCount} tags match POS` : 'No active tags to match'}</span>
+            <ArrowRight size={12} color={c.textMuted} />
           </div>
         </div>
 
@@ -384,26 +389,20 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
             backgroundColor: c.surface,
             border: `1px solid ${c.border}`,
             borderRadius: '12px',
-            padding: '18px',
+            padding: '16px',
             cursor: 'pointer',
-            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+            transition: 'border-color 0.15s ease',
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = c.accentViolet;
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = c.border;
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = c.accentViolet; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = c.border; }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: c.textMuted }}>BASE STATIONS (APs)</span>
+            <span style={{ fontSize: '11.5px', fontWeight: 600, color: c.textMuted }}>BASE STATIONS (APs)</span>
             <div
               style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
+                width: '30px',
+                height: '30px',
+                borderRadius: '7px',
                 backgroundColor: '#f5f3ff',
                 color: c.accentViolet,
                 display: 'flex',
@@ -411,18 +410,18 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
                 justifyContent: 'center',
               }}
             >
-              <Radio size={16} />
+              <Radio size={15} />
             </div>
           </div>
-          <div style={{ marginTop: '12px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <span style={{ fontSize: '28px', fontWeight: 800, color: c.text }}>{onlineAps} / {totalAps}</span>
-            <span style={{ fontSize: '12px', color: c.success, fontWeight: 700 }}>
-              868 MHz India
+          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ fontSize: '26px', fontWeight: 800, color: c.text }}>{onlineAps} / {totalAps}</span>
+            <span style={{ fontSize: '12px', color: onlineAps > 0 ? c.success : c.textMuted, fontWeight: 700 }}>
+              {onlineAps > 0 ? 'Online' : 'Offline'}
             </span>
           </div>
-          <div style={{ marginTop: '8px', fontSize: '11.5px', color: c.textMuted, display: 'flex', justifyContent: 'space-between' }}>
-            <span>Highlight AP Station CU006</span>
-            <ArrowRight size={13} color={c.textMuted} />
+          <div style={{ marginTop: '6px', fontSize: '11px', color: c.textMuted, display: 'flex', justifyContent: 'space-between' }}>
+            <span>{isHighlightOnline ? 'Highlight AP 483 Active' : 'No active AP detected'}</span>
+            <ArrowRight size={12} color={c.textMuted} />
           </div>
         </div>
 
@@ -433,26 +432,20 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
             backgroundColor: c.surface,
             border: `1px solid ${c.border}`,
             borderRadius: '12px',
-            padding: '18px',
+            padding: '16px',
             cursor: 'pointer',
-            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+            transition: 'border-color 0.15s ease',
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = c.warning;
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = c.border;
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = c.warning; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = c.border; }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: c.textMuted }}>MANAGED PRODUCTS</span>
+            <span style={{ fontSize: '11.5px', fontWeight: 600, color: c.textMuted }}>MANAGED PRODUCTS</span>
             <div
               style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
+                width: '30px',
+                height: '30px',
+                borderRadius: '7px',
                 backgroundColor: c.warningBg,
                 color: c.warning,
                 display: 'flex',
@@ -460,18 +453,18 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
                 justifyContent: 'center',
               }}
             >
-              <Package size={16} />
+              <Package size={15} />
             </div>
           </div>
-          <div style={{ marginTop: '12px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <span style={{ fontSize: '28px', fontWeight: 800, color: c.text }}>{skus.length || 10}</span>
+          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ fontSize: '26px', fontWeight: 800, color: c.text }}>{skus.length}</span>
             <span style={{ fontSize: '11px', color: c.primary, fontWeight: 700, backgroundColor: c.primaryBg, padding: '2px 6px', borderRadius: '4px' }}>
-              PRC-04 Guardrail
+              PRC-04 Compliant
             </span>
           </div>
-          <div style={{ marginTop: '8px', fontSize: '11.5px', color: c.textMuted, display: 'flex', justifyContent: 'space-between' }}>
-            <span>Active SKUs with price compliance</span>
-            <ArrowRight size={13} color={c.textMuted} />
+          <div style={{ marginTop: '6px', fontSize: '11px', color: c.textMuted, display: 'flex', justifyContent: 'space-between' }}>
+            <span>{skus.length > 0 ? `${skus.length} active SKUs` : 'No SKUs added yet'}</span>
+            <ArrowRight size={12} color={c.textMuted} />
           </div>
         </div>
       </div>
@@ -480,118 +473,133 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px' }}>
         {/* Left Column (2/3 width) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', gridColumn: 'span 2' }}>
-          {/* Section: 24h Activity Graph */}
+          {/* Section: Real Activity Graph */}
           <div
             style={{
               backgroundColor: c.surface,
               border: `1px solid ${c.border}`,
-              borderRadius: '14px',
-              padding: '22px',
+              borderRadius: '12px',
+              padding: '20px',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: c.text }}>
-                  Real-Time Fleet Sync & Price Broadcast Activity
+                <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: c.text }}>
+                  Price Update & Audit History
                 </h3>
                 <p style={{ margin: '2px 0 0', fontSize: '12px', color: c.textMuted }}>
-                  Hourly price update triggers and Sub-GHz RF transmission packets over the last 24 hours.
+                  Real price changes and RF broadcast updates recorded from POS and catalog adjustments.
                 </p>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '11.5px', fontWeight: 600 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: c.primary }}>
-                  <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: c.primary }}></span>
-                  Price Updates
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: c.textMuted }}>
-                  <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: c.borderStrong }}></span>
-                  RF Broadcasts
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px', fontWeight: 600 }}>
+                <span style={{ color: c.textMuted }}>
+                  Total Events: <strong style={{ color: c.text }}>{auditLogs.length}</strong>
                 </span>
               </div>
             </div>
 
-            {/* SVG Interactive Area Chart */}
-            <div style={{ width: '100%', overflowX: 'auto' }}>
-              <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} style={{ width: '100%', height: '160px', overflow: 'visible' }}>
-                <defs>
-                  <linearGradient id="primaryAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#2563eb" stopOpacity="0.22" />
-                    <stop offset="100%" stopColor="#2563eb" stopOpacity="0.0" />
-                  </linearGradient>
-                </defs>
+            {/* If no audit activity recorded yet, show real empty state */}
+            {activityData.length === 0 ? (
+              <div
+                style={{
+                  padding: '36px 20px',
+                  textAlign: 'center',
+                  backgroundColor: c.surfaceSubtle,
+                  borderRadius: '10px',
+                  border: `1px dashed ${c.borderStrong}`,
+                }}
+              >
+                <Clock size={24} color={c.textMuted} style={{ margin: '0 auto 8px', display: 'block', opacity: 0.6 }} />
+                <div style={{ fontSize: '13px', fontWeight: 700, color: c.text }}>No Price Update Activity Logged</div>
+                <div style={{ fontSize: '11.5px', color: c.textMuted, marginTop: '3px' }}>
+                  When price updates are pushed through Dynamic Pricing or the POS Webhook API, their chronological distribution will appear here.
+                </div>
+              </div>
+            ) : (
+              <div style={{ width: '100%', overflowX: 'auto' }}>
+                <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} style={{ width: '100%', height: '160px', overflow: 'visible' }}>
+                  <defs>
+                    <linearGradient id="primaryAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#2563eb" stopOpacity="0.22" />
+                      <stop offset="100%" stopColor="#2563eb" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
 
-                {/* Horizontal Grid lines */}
-                {[0, 50, 100, 150, 200].map((val) => {
-                  const y = chartHeight - 25 - (val / maxVal) * (chartHeight - 45);
-                  return (
-                    <g key={val}>
-                      <line x1="20" y1={y} x2={chartWidth - 20} y2={y} stroke={c.border} strokeDasharray="3 3" />
-                      <text x="12" y={y + 3} fill={c.textMuted} fontSize="9" textAnchor="end">
-                        {val}
+                  {/* Horizontal Grid lines */}
+                  {[0, Math.round(maxVal / 2), maxVal].map((val) => {
+                    const y = chartHeight - 25 - (val / maxVal) * (chartHeight - 45);
+                    return (
+                      <g key={val}>
+                        <line x1="25" y1={y} x2={chartWidth - 25} y2={y} stroke={c.border} strokeDasharray="3 3" />
+                        <text x="18" y={y + 3} fill={c.textMuted} fontSize="9" textAnchor="end">
+                          {val}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* Area under curve */}
+                  {areaD && <path d={areaD} fill="url(#primaryAreaGrad)" />}
+
+                  {/* Line path */}
+                  {pathD && <path d={pathD} fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+
+                  {/* Data points */}
+                  {points.map((p, idx) => (
+                    <g key={idx}>
+                      <circle cx={p.x} cy={p.y} r="3.5" fill="#ffffff" stroke="#2563eb" strokeWidth="2" />
+                      <text x={p.x} y={chartHeight - 5} fill={c.textMuted} fontSize="9" textAnchor="middle">
+                        {p.hour}
                       </text>
                     </g>
-                  );
-                })}
+                  ))}
+                </svg>
+              </div>
+            )}
 
-                {/* Area under curve */}
-                <path d={areaD} fill="url(#primaryAreaGrad)" />
-
-                {/* Line path */}
-                <path d={pathD} fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-
-                {/* Data points & Hour labels */}
-                {points.map((p, idx) => (
-                  <g key={idx}>
-                    <circle cx={p.x} cy={p.y} r="3.5" fill="#ffffff" stroke="#2563eb" strokeWidth="2" />
-                    <text x={p.x} y={chartHeight - 5} fill={c.textMuted} fontSize="9" textAnchor="middle">
-                      {p.hour}
-                    </text>
-                  </g>
-                ))}
-              </svg>
-            </div>
-
-            {/* Metric Footer Highlights */}
+            {/* Metric Footer Highlights strictly from real data */}
             <div
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(3, 1fr)',
                 gap: '12px',
                 marginTop: '16px',
-                paddingTop: '16px',
+                paddingTop: '14px',
                 borderTop: `1px solid ${c.border}`,
               }}
             >
               <div>
-                <span style={{ fontSize: '11px', color: c.textMuted }}>Total 24h Price Updates</span>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: c.text }}>830 changes</div>
+                <span style={{ fontSize: '11px', color: c.textMuted }}>Audit Logged Updates</span>
+                <div style={{ fontSize: '17px', fontWeight: 800, color: c.text }}>{auditLogs.length} events</div>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: c.textMuted }}>Avg RF Tag ACK Latency</span>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: c.success }}>182 ms</div>
+                <span style={{ fontSize: '11px', color: c.textMuted }}>Hardware Cloud Status</span>
+                <div style={{ fontSize: '17px', fontWeight: 800, color: isHighlightOnline ? c.success : c.error }}>
+                  {isHighlightOnline ? 'Connected' : 'Offline'}
+                </div>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: c.textMuted }}>Broadcast Success Rate</span>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: c.primary }}>99.98%</div>
+                <span style={{ fontSize: '11px', color: c.textMuted }}>Active Hardware Tags</span>
+                <div style={{ fontSize: '17px', fontWeight: 800, color: c.primary }}>{physicalCount} devices</div>
               </div>
             </div>
           </div>
 
-          {/* Section: Base Station AP Hardware Snapshot */}
+          {/* Section: Base Station AP Real Hardware Snapshot */}
           <div
             style={{
               backgroundColor: c.surface,
               border: `1px solid ${c.border}`,
-              borderRadius: '14px',
-              padding: '20px',
+              borderRadius: '12px',
+              padding: '18px',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                <Radio size={16} color={c.accentViolet} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Radio size={15} color={c.accentViolet} />
                 <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: c.text }}>
-                  Active Base Station APs & Radio Coverage
+                  Base Station APs & Radio Hardware
                 </h3>
               </div>
               <button
@@ -608,115 +616,136 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
                   gap: '4px',
                 }}
               >
-                View all APs <ArrowRight size={13} />
+                View AP details <ArrowRight size={12} />
               </button>
             </div>
 
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                gap: '12px',
-              }}
-            >
-              {/* Highlight Hardware AP */}
+            {/* Check if any real AP exists */}
+            {totalAps === 0 ? (
               <div
                 style={{
-                  border: `1px solid ${c.border}`,
-                  borderRadius: '10px',
-                  padding: '14px',
+                  padding: '24px 16px',
+                  textAlign: 'center',
                   backgroundColor: c.surfaceSubtle,
+                  borderRadius: '8px',
+                  border: `1px dashed ${c.borderStrong}`,
+                  fontSize: '12px',
+                  color: c.textMuted,
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <span style={{ fontSize: '12px', fontWeight: 700, color: c.text }}>
-                      Highlight AP Station CU006
-                    </span>
-                    <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '2px' }}>
-                      Station ID: <code style={{ color: c.primary }}>483</code> • Sub-GHz 868.1 MHz
-                    </div>
-                  </div>
-                  <span
-                    style={{
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      color: c.success,
-                      backgroundColor: c.successBg,
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      border: `1px solid rgba(5,150,105,0.2)`,
-                    }}
-                  >
-                    ONLINE
-                  </span>
-                </div>
-
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    marginTop: '12px',
-                    fontSize: '11.5px',
-                    borderTop: `1px solid ${c.border}`,
-                    paddingTop: '10px',
-                  }}
-                >
-                  <span style={{ color: c.textMuted }}>Connected Tags: <strong style={{ color: c.text }}>{highlightDevices.length}</strong></span>
-                  <span style={{ color: c.textMuted }}>Ping: <strong style={{ color: c.success }}>12 ms</strong></span>
-                  <span style={{ color: c.textMuted }}>Firmware: <strong style={{ color: c.text }}>v3.4.1</strong></span>
-                </div>
+                <AlertCircle size={20} color={c.warning} style={{ margin: '0 auto 6px', display: 'block' }} />
+                No Base Station Access Points registered. Provision an AP from the Base Stations tab.
               </div>
-
-              {/* Core Store Gateway */}
+            ) : (
               <div
                 style={{
-                  border: `1px solid ${c.border}`,
-                  borderRadius: '10px',
-                  padding: '14px',
-                  backgroundColor: c.surfaceSubtle,
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                  gap: '12px',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <span style={{ fontSize: '12px', fontWeight: 700, color: c.text }}>
-                      Store AP Gateway BLR-01
-                    </span>
-                    <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '2px' }}>
-                      Hardware ID: <code style={{ color: c.primary }}>gw-blr-01</code> • Koramangala
-                    </div>
-                  </div>
-                  <span
+                {/* Real Highlight Hardware AP */}
+                {isHighlightOnline && (
+                  <div
                     style={{
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      color: c.success,
-                      backgroundColor: c.successBg,
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      border: `1px solid rgba(5,150,105,0.2)`,
+                      border: `1px solid ${c.border}`,
+                      borderRadius: '10px',
+                      padding: '14px',
+                      backgroundColor: c.surfaceSubtle,
                     }}
                   >
-                    READY
-                  </span>
-                </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: c.text }}>
+                          Highlight AP Base Station
+                        </span>
+                        <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '2px' }}>
+                          Station ID: <code style={{ color: c.primary }}>{highlightDevices[0]?.stationId || '483'}</code> • Sub-GHz 868.1 MHz
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: c.success,
+                          backgroundColor: c.successBg,
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          border: `1px solid rgba(5,150,105,0.2)`,
+                        }}
+                      >
+                        ONLINE
+                      </span>
+                    </div>
 
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    marginTop: '12px',
-                    fontSize: '11.5px',
-                    borderTop: `1px solid ${c.border}`,
-                    paddingTop: '10px',
-                  }}
-                >
-                  <span style={{ color: c.textMuted }}>Channels: <strong style={{ color: c.text }}>Ch 1-4</strong></span>
-                  <span style={{ color: c.textMuted }}>Rate: <strong style={{ color: c.text }}>100 tags/s</strong></span>
-                  <span style={{ color: c.textMuted }}>Failover: <strong style={{ color: c.success }}>Active</strong></span>
-                </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        marginTop: '12px',
+                        fontSize: '11.5px',
+                        borderTop: `1px solid ${c.border}`,
+                        paddingTop: '8px',
+                      }}
+                    >
+                      <span style={{ color: c.textMuted }}>Connected Tags: <strong style={{ color: c.text }}>{highlightDevices.length}</strong></span>
+                      <span style={{ color: c.textMuted }}>Network: <strong style={{ color: c.text }}>Sub-GHz</strong></span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Real Database Gateways */}
+                {gateways.map((gw) => (
+                  <div
+                    key={gw.id}
+                    style={{
+                      border: `1px solid ${c.border}`,
+                      borderRadius: '10px',
+                      padding: '14px',
+                      backgroundColor: c.surfaceSubtle,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: c.text }}>
+                          {gw.hardwareId}
+                        </span>
+                        <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '2px' }}>
+                          Firmware: <code>{gw.firmware}</code> {gw.store ? `• ${gw.store.name}` : ''}
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: gw.status === 'ONLINE' ? c.success : c.error,
+                          backgroundColor: gw.status === 'ONLINE' ? c.successBg : c.errorBg,
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          border: `1px solid ${gw.status === 'ONLINE' ? 'rgba(5,150,105,0.2)' : 'rgba(220,38,38,0.2)'}`,
+                        }}
+                      >
+                        {gw.status}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        marginTop: '12px',
+                        fontSize: '11.5px',
+                        borderTop: `1px solid ${c.border}`,
+                        paddingTop: '8px',
+                      }}
+                    >
+                      <span style={{ color: c.textMuted }}>Tags: <strong style={{ color: c.text }}>{gw.tagCount}</strong></span>
+                      <span style={{ color: c.textMuted }}>Status: <strong style={{ color: gw.status === 'ONLINE' ? c.success : c.error }}>{gw.status}</strong></span>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -727,8 +756,8 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
             style={{
               backgroundColor: c.surface,
               border: `1px solid ${c.border}`,
-              borderRadius: '14px',
-              padding: '20px',
+              borderRadius: '12px',
+              padding: '18px',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -737,134 +766,145 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
           >
             <div style={{ width: '100%', textAlign: 'left', marginBottom: '8px' }}>
               <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: c.text }}>
-                Fleet Synchronization Ratio
+                Fleet Synchronization
               </h3>
               <p style={{ margin: '2px 0 0', fontSize: '11.5px', color: c.textMuted }}>
-                Live match between Store POS database & E-Paper display memory
+                Matching status between catalog and active e-paper tags
               </p>
             </div>
 
-            {/* Circular Ring Progress */}
-            <div style={{ position: 'relative', width: '110px', height: '110px', margin: '14px 0' }}>
-              <svg width="110" height="110" viewBox="0 0 100 100">
-                {/* Background Ring */}
-                <circle
-                  cx="50"
-                  cy="50"
-                  r={radius}
-                  fill="transparent"
-                  stroke={c.border}
-                  strokeWidth="8"
-                />
-                {/* Active Progress Ring */}
-                <circle
-                  cx="50"
-                  cy="50"
-                  r={radius}
-                  fill="transparent"
-                  stroke={convergencePct === 100 ? c.success : c.primary}
-                  strokeWidth="8"
-                  strokeDasharray={`${convergedStroke} ${circumference}`}
-                  strokeDashoffset="0"
-                  strokeLinecap="round"
-                  transform="rotate(-90 50 50)"
-                  style={{ transition: 'stroke-dasharray 0.6s ease' }}
-                />
-              </svg>
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <span style={{ fontSize: '20px', fontWeight: 800, color: c.text }}>{convergencePct}%</span>
-                <span style={{ fontSize: '9.5px', fontWeight: 700, color: c.success, textTransform: 'uppercase' }}>
-                  Synced
-                </span>
+            {totalFleetSize === 0 ? (
+              <div style={{ padding: '24px 10px', color: c.textMuted, fontSize: '12px' }}>
+                <Cpu size={24} style={{ margin: '0 auto 6px', display: 'block', opacity: 0.5 }} />
+                No electronic shelf labels detected in fleet.
               </div>
-            </div>
+            ) : (
+              <>
+                {/* Circular Ring Progress */}
+                <div style={{ position: 'relative', width: '100px', height: '100px', margin: '12px 0' }}>
+                  <svg width="100" height="100" viewBox="0 0 100 100">
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={radius}
+                      fill="transparent"
+                      stroke={c.border}
+                      strokeWidth="8"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={radius}
+                      fill="transparent"
+                      stroke={convergencePct === 100 ? c.success : c.primary}
+                      strokeWidth="8"
+                      strokeDasharray={`${convergedStroke} ${circumference}`}
+                      strokeDashoffset="0"
+                      strokeLinecap="round"
+                      transform="rotate(-90 50 50)"
+                      style={{ transition: 'stroke-dasharray 0.6s ease' }}
+                    />
+                  </svg>
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: '19px', fontWeight: 800, color: c.text }}>{convergencePct}%</span>
+                    <span style={{ fontSize: '9px', fontWeight: 700, color: c.success, textTransform: 'uppercase' }}>
+                      Synced
+                    </span>
+                  </div>
+                </div>
 
-            {/* Status Breakdown Legend */}
-            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: c.textSecondary }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: c.success }}></span>
-                  In Perfect Sync (Converged)
-                </span>
-                <strong style={{ color: c.text }}>{convergedCount}</strong>
-              </div>
+                {/* Status Breakdown Legend */}
+                <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '7px', fontSize: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: c.textSecondary }}>
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: c.success }}></span>
+                      In Sync (Converged)
+                    </span>
+                    <strong style={{ color: c.text }}>{convergedCount}</strong>
+                  </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: c.textSecondary }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: c.warning }}></span>
-                  Price Update Pending (Diverged)
-                </span>
-                <strong style={{ color: divergedCount > 0 ? c.warning : c.text }}>{divergedCount}</strong>
-              </div>
-            </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: c.textSecondary }}>
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: c.warning }}></span>
+                      Pending Radio Push
+                    </span>
+                    <strong style={{ color: divergedCount > 0 ? c.warning : c.text }}>{divergedCount}</strong>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Card: Battery & Signal Health */}
+          {/* Card: Battery Health */}
           <div
             style={{
               backgroundColor: c.surface,
               border: `1px solid ${c.border}`,
-              borderRadius: '14px',
-              padding: '20px',
+              borderRadius: '12px',
+              padding: '18px',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <BatteryCharging size={16} color={c.success} />
+                <BatteryCharging size={15} color={c.success} />
                 <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: c.text }}>
-                  Tag Battery & Signal Health
+                  Device Battery Health
                 </h3>
               </div>
             </div>
 
-            {/* Battery Distribution Bar */}
-            <div style={{ marginBottom: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '6px' }}>
-                <span style={{ color: c.textMuted }}>Battery Level Distribution</span>
-                <span style={{ color: c.success, fontWeight: 700 }}>{batteryStats.highPct}% Optimal</span>
-              </div>
+            {/* If no physical tags connected, show real state */}
+            {!batteryStats.hasData ? (
               <div
                 style={{
-                  height: '8px',
-                  borderRadius: '4px',
+                  padding: '18px 12px',
+                  textAlign: 'center',
                   backgroundColor: c.surfaceSubtle,
-                  display: 'flex',
-                  overflow: 'hidden',
+                  borderRadius: '8px',
+                  fontSize: '11.5px',
+                  color: c.textMuted,
                 }}
               >
-                <div style={{ width: `${batteryStats.highPct}%`, backgroundColor: c.success }} title={`High: ${batteryStats.high}`} />
-                <div style={{ width: `${batteryStats.normalPct}%`, backgroundColor: c.warning }} title={`Normal: ${batteryStats.normal}`} />
-                <div style={{ width: `${batteryStats.lowPct}%`, backgroundColor: c.error }} title={`Low: ${batteryStats.low}`} />
+                No physical devices reporting battery voltage.
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: c.textMuted, marginTop: '6px' }}>
-                <span>● High (&gt;80%): {batteryStats.high}</span>
-                <span>● Good (40-80%): {batteryStats.normal}</span>
-                <span>● Low (&lt;20%): {batteryStats.low}</span>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '6px' }}>
+                  <span style={{ color: c.textMuted }}>Battery Status ({highlightDevices.length} Tags)</span>
+                  <span style={{ color: c.success, fontWeight: 700 }}>{batteryStats.highPct}% Optimal</span>
+                </div>
+                <div
+                  style={{
+                    height: '8px',
+                    borderRadius: '4px',
+                    backgroundColor: c.surfaceSubtle,
+                    display: 'flex',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div style={{ width: `${batteryStats.highPct}%`, backgroundColor: c.success }} title={`High: ${batteryStats.high}`} />
+                  <div style={{ width: `${batteryStats.normalPct}%`, backgroundColor: c.warning }} title={`Normal: ${batteryStats.normal}`} />
+                  <div style={{ width: `${batteryStats.lowPct}%`, backgroundColor: c.error }} title={`Low: ${batteryStats.low}`} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: c.textMuted, marginTop: '6px' }}>
+                  <span>● High (4-5): {batteryStats.high}</span>
+                  <span>● Mid (2-3): {batteryStats.normal}</span>
+                  <span>● Low (0-1): {batteryStats.low}</span>
+                </div>
               </div>
-            </div>
-
-            {/* Signal Strength Overview */}
-            <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11.5px' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: c.textSecondary }}>
-                  <Wifi size={13} color={c.primary} />
-                  Average RSSI Signal Quality
-                </span>
-                <span style={{ fontWeight: 700, color: c.success }}>-62 dBm (Excellent)</span>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Quick Operations Actions Panel */}
@@ -872,20 +912,20 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
             style={{
               backgroundColor: c.surface,
               border: `1px solid ${c.border}`,
-              borderRadius: '14px',
-              padding: '18px',
+              borderRadius: '12px',
+              padding: '16px',
             }}
           >
-            <h4 style={{ margin: '0 0 10px', fontSize: '13px', fontWeight: 700, color: c.text }}>
-              Quick Navigation Shortcuts
+            <h4 style={{ margin: '0 0 10px', fontSize: '12.5px', fontWeight: 700, color: c.text }}>
+              Quick Navigation
             </h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {[
-                { label: 'Physical Highlight Tags', route: 'highlight', icon: Cpu, desc: 'Manage 2.13" & 4.2" E-Paper' },
-                { label: 'Catalog & Dynamic Pricing', route: 'pricing', icon: DollarSign, desc: 'Update prices & promo badges' },
-                { label: 'RF Base Stations (APs)', route: 'gateways', icon: Radio, desc: 'Tune rate limits & channels' },
-                { label: 'Audit Trail & Compliance', route: 'audit', icon: FileText, desc: 'Inspect historical price changes' },
-                { label: 'Operations & SOPs', route: 'docs', icon: BookOpen, desc: 'View setup documentation' },
+                { label: 'Hardware Fleet', route: 'highlight', icon: Cpu, desc: 'Manage e-paper tags & templates' },
+                { label: 'Products & Pricing', route: 'pricing', icon: DollarSign, desc: 'Update prices & promo badges' },
+                { label: 'Base Stations (APs)', route: 'gateways', icon: Radio, desc: 'Tune rate limits & channels' },
+                { label: 'Audit Trail', route: 'audit', icon: FileText, desc: 'Inspect historical price changes' },
+                { label: 'Operations & SOPs', route: 'docs', icon: BookOpen, desc: 'Commissioning & store guides' },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
@@ -899,7 +939,7 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
                       padding: '8px 10px',
                       backgroundColor: c.surfaceSubtle,
                       border: `1px solid transparent`,
-                      borderRadius: '8px',
+                      borderRadius: '7px',
                       cursor: 'pointer',
                       textAlign: 'left',
                       transition: 'all 0.15s ease',
@@ -917,10 +957,10 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
                       <Icon size={14} color={c.primary} />
                       <div>
                         <div style={{ fontSize: '12px', fontWeight: 600, color: c.text }}>{item.label}</div>
-                        <div style={{ fontSize: '10.5px', color: c.textMuted }}>{item.desc}</div>
+                        <div style={{ fontSize: '10px', color: c.textMuted }}>{item.desc}</div>
                       </div>
                     </div>
-                    <ArrowRight size={13} color={c.textMuted} />
+                    <ArrowRight size={12} color={c.textMuted} />
                   </button>
                 );
               })}
