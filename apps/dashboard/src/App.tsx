@@ -1568,64 +1568,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* Fleet Health Quick Widget (Dynamic Live Metrics) */}
-          {(() => {
-            const totalLabelsCount = highlightStatus?.connected && highlightDevices.length > 0 
-              ? highlightDevices.length 
-              : (fleet ? fleet.totalTags : tags.length);
-            const divergedCount = fleet ? fleet.divergedTags : blinkingTagIds.size;
-            const fleetHealthPct = totalLabelsCount > 0
-              ? (fleet ? `${fleet.convergencePct.toFixed(1)}%` : `${(((Math.max(0, totalLabelsCount - divergedCount)) / totalLabelsCount) * 100).toFixed(1)}%`)
-              : 'N/A';
-
-            return sidebarCollapsed ? (
-              <div
-                style={{
-                  backgroundColor: c.surfaceSubtle,
-                  border: `1px solid ${c.border}`,
-                  borderRadius: '8px',
-                  padding: '8px 2px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '4px',
-                  cursor: 'pointer',
-                }}
-                title={`Fleet Health: ${fleetHealthPct} (${totalLabelsCount} labels, ${divergedCount} diverged) — Calculated as: ((Total - Diverged) / Total) * 100`}
-              >
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: divergedCount > 0 ? c.warning : c.success }} />
-                <span style={{ fontSize: '10px', fontWeight: 800, color: divergedCount > 0 ? c.warning : c.success }}>
-                  {fleetHealthPct}
-                </span>
-              </div>
-            ) : (
-              <div
-                style={{
-                  backgroundColor: c.surfaceSubtle,
-                  border: `1px solid ${c.border}`,
-                  borderRadius: '10px',
-                  padding: '10px 12px',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px', color: c.textMuted, fontWeight: 700 }}>
-                  <span style={{ textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>Fleet Health Status</span>
-                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: divergedCount > 0 ? c.warning : c.success }} />
-                </div>
-                <div style={{ fontSize: '22px', fontWeight: 900, color: divergedCount > 0 ? c.warning : c.success, marginTop: '2px' }}>
-                  {fleetHealthPct}
-                </div>
-                <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '2px', display: 'flex', gap: '6px', whiteSpace: 'nowrap' }}>
-                  <span>{totalLabelsCount} Labels</span>
-                  <span>•</span>
-                  <span style={{ color: divergedCount > 0 ? c.warning : c.success, fontWeight: 700 }}>
-                    {divergedCount} Diverged
-                  </span>
-                </div>
-              </div>
-            );
-          })()}
-
           {/* Navigation Links (All 6 Core Operational Routes) */}
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
             {[
