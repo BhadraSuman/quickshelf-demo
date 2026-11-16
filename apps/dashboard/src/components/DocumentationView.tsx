@@ -25,6 +25,7 @@ import {
   Check,
 } from 'lucide-react';
 import type { HighlightDevice } from './HighlightFleetView.js';
+import { CustomSelect } from './CustomSelect.js';
 
 interface DocumentationViewProps {
   theme?: 'dark' | 'light';
@@ -470,29 +471,22 @@ export function DocumentationView({ highlightDevices = [] }: DocumentationViewPr
               {/* Tag Selector */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '12px', color: c.textMuted, fontWeight: 600 }}>Select Tag:</span>
-                <select
+                <CustomSelect
                   value={diagnosticTagNumber}
-                  onChange={(e) => setDiagnosticTagNumber(e.target.value)}
-                  style={{
-                    backgroundColor: c.surfaceSubtle,
-                    border: `1px solid ${c.border}`,
-                    color: c.text,
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    padding: '5px 10px',
-                    borderRadius: '6px',
-                    fontFamily: 'monospace',
-                  }}
-                >
-                  {highlightDevices.map((d) => (
-                    <option key={d.deviceNumber} value={d.deviceNumber}>
-                      {d.deviceNumber} {d.deviceNumber === '8003152970' ? '(7.5" Sample)' : ''}
-                    </option>
-                  ))}
-                  {highlightDevices.length === 0 && (
-                    <option value="8003152970">8003152970 (7.5" Sample)</option>
-                  )}
-                </select>
+                  onChange={(val) => setDiagnosticTagNumber(val)}
+                  size="sm"
+                  width="220px"
+                  options={
+                    highlightDevices.length > 0
+                      ? highlightDevices.map((d) => ({
+                          value: d.deviceNumber,
+                          label: d.deviceNumber,
+                          badge: d.deviceNumber === '8003152970' ? '7.5" Sample' : (d.size || 'Tag'),
+                          badgeColor: d.deviceNumber === '8003152970' ? '#2563eb' : undefined,
+                        }))
+                      : [{ value: '8003152970', label: '8003152970', badge: '7.5" Sample', badgeColor: '#2563eb' }]
+                  }
+                />
               </div>
             </div>
 

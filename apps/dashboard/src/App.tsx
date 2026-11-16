@@ -84,6 +84,7 @@ import {
   type AppNotification,
 } from './components/NotificationToast';
 import { LoginScreen } from './components/LoginScreen';
+import { CustomSelect } from './components/CustomSelect';
 
 const API_BASE =
   (import.meta as any).env?.VITE_API_BASE ||
@@ -265,6 +266,7 @@ export default function App() {
 
   // Authentication & Zero-Trust Security State
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('qs_auth_token'));
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const handleLogout = () => {
     localStorage.removeItem('qs_auth_token');
@@ -1993,7 +1995,7 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={handleLogout}
+                onClick={() => setShowLogoutConfirm(true)}
                 title="Sign Out"
                 style={{
                   display: 'flex',
@@ -2263,41 +2265,42 @@ export default function App() {
 
                 {/* Filter Selectors */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <select
+                  <CustomSelect
                     value={filterGateway}
-                    onChange={(e) => setFilterGateway(e.target.value)}
-                    style={{ backgroundColor: c.surfaceSubtle, color: c.text, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '5px 8px', fontSize: '11px' }}
-                  >
-                    <option value="ALL">All Gateways</option>
-                    {gateways.map((gw) => (
-                      <option key={gw.id} value={gw.hardwareId}>{gw.hardwareId}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setFilterGateway(val)}
+                    size="sm"
+                    options={[
+                      { value: 'ALL', label: 'All Gateways' },
+                      ...gateways.map((gw) => ({ value: gw.hardwareId, label: gw.hardwareId })),
+                    ]}
+                  />
 
-                  <select
+                  <CustomSelect
                     value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value as any)}
-                    style={{ backgroundColor: c.surfaceSubtle, color: c.text, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '5px 8px', fontSize: '11px' }}
-                  >
-                    <option value="ALL">All Statuses</option>
-                    <option value="DIVERGED">Syncing (Diverged)</option>
-                    <option value="CONVERGED">In Sync (Converged)</option>
-                    <option value="LOW_BATTERY">Low Battery (&lt;20%)</option>
-                  </select>
+                    onChange={(val) => setFilterStatus(val as any)}
+                    size="sm"
+                    options={[
+                      { value: 'ALL', label: 'All Statuses' },
+                      { value: 'DIVERGED', label: 'Syncing (Diverged)', badge: 'Diverged', badgeColor: '#f59e0b' },
+                      { value: 'CONVERGED', label: 'In Sync (Converged)', badge: 'In Sync', badgeColor: '#10b981' },
+                      { value: 'LOW_BATTERY', label: 'Low Battery (<20%)', badge: 'Battery', badgeColor: '#ef4444' },
+                    ]}
+                  />
 
-                  <select
+                  <CustomSelect
                     value={filterSize}
-                    onChange={(e) => setFilterSize(e.target.value)}
-                    style={{ backgroundColor: c.surfaceSubtle, color: c.text, border: `1px solid ${c.border}`, borderRadius: '6px', padding: '5px 8px', fontSize: '11px' }}
-                  >
-                    <option value="ALL">All Display Sizes</option>
-                    <option value="T154">1.54" (T154)</option>
-                    <option value="T213">2.13" (T213)</option>
-                    <option value="T290">2.90" (T290)</option>
-                    <option value="T420">4.20" (T420)</option>
-                    <option value="T750">7.50" (T750)</option>
-                    <option value="T1020">10.2" (T1020)</option>
-                  </select>
+                    onChange={(val) => setFilterSize(val)}
+                    size="sm"
+                    options={[
+                      { value: 'ALL', label: 'All Display Sizes' },
+                      { value: 'T154', label: '1.54" (T154)' },
+                      { value: 'T213', label: '2.13" (T213)' },
+                      { value: 'T290', label: '2.90" (T290)' },
+                      { value: 'T420', label: '4.20" (T420)' },
+                      { value: 'T750', label: '7.50" (T750)' },
+                      { value: 'T1020', label: '10.2" (T1020)' },
+                    ]}
+                  />
 
                   {/* Grid vs Table View Mode */}
                   <div style={{ display: 'flex', backgroundColor: c.surfaceSubtle, borderRadius: '6px', border: `1px solid ${c.border}`, overflow: 'hidden' }}>
@@ -5022,7 +5025,7 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setShowSettingsModal(false);
-                      handleLogout();
+                      setShowLogoutConfirm(true);
                     }}
                     style={{
                       display: 'inline-flex',
@@ -5652,6 +5655,164 @@ Line 4: 8003152970,Kalakand Display 7.5,CU006INDIA0344:483`}
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: CONFIRM SIGN OUT POPUP
+      ========================================================================== */}
+      {showLogoutConfirm && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(6px)',
+            zIndex: 1200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            animation: 'dropdownFadeIn 0.2s ease-out',
+          }}
+          onClick={() => setShowLogoutConfirm(false)}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '430px',
+              backgroundColor: c.surface,
+              border: `1px solid ${c.border}`,
+              borderRadius: '16px',
+              padding: '24px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+              position: 'relative',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Icon & Title */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ef4444',
+                  flexShrink: 0,
+                }}
+              >
+                <LogOut size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: c.text }}>
+                  Sign Out of QuickShelf
+                </h3>
+                <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: c.textMuted }}>
+                  Confirm ending your active session
+                </p>
+              </div>
+            </div>
+
+            {/* Active User Identity Info Card */}
+            <div
+              style={{
+                backgroundColor: c.surfaceSubtle,
+                border: `1px solid ${c.border}`,
+                borderRadius: '10px',
+                padding: '12px 14px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+              }}
+            >
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  backgroundColor: c.primary,
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 800,
+                  fontSize: '13px',
+                  flexShrink: 0,
+                }}
+              >
+                {(userName ? userName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() : 'AD')}
+              </div>
+              <div style={{ overflow: 'hidden' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: c.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {userName || userEmail || 'Administrator'}
+                </div>
+                <div style={{ fontSize: '11.5px', color: c.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {userEmail || 'Active Session'} • {userRole || 'SUPER_ADMIN'}
+                </div>
+              </div>
+            </div>
+
+            <p style={{ margin: '0 0 20px 0', fontSize: '13px', color: c.textMuted, lineHeight: 1.5 }}>
+              Are you sure you want to sign out? Your credentials will be cleared from this device and you will need to log in again to manage e-paper labels and real-time pricing.
+            </p>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowLogoutConfirm(false)}
+                style={{
+                  padding: '9px 16px',
+                  borderRadius: '8px',
+                  border: `1px solid ${c.border}`,
+                  backgroundColor: c.surfaceSubtle,
+                  color: c.text,
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'background-color 0.15s ease',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = c.surface; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = c.surfaceSubtle; }}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  handleLogout();
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '9px 18px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#dc2626',
+                  color: '#ffffff',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
+                  transition: 'background-color 0.15s ease',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#b91c1c'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#dc2626'; }}
+              >
+                <LogOut size={14} />
+                <span>Yes, Sign Out</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

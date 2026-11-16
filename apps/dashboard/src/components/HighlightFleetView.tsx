@@ -27,6 +27,7 @@ import {
   ChevronDown,
   Sliders,
 } from 'lucide-react';
+import { CustomSelect } from './CustomSelect.js';
 
 export interface HighlightStatus {
   success: boolean;
@@ -115,6 +116,7 @@ export function HighlightFleetView({
   blinkingTagIds,
 }: HighlightFleetViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'BOUND' | 'UNBOUND' | 'LOW_BATTERY'>('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingDevice, setEditingDevice] = useState<HighlightDevice | null>(null);
   const [newDeviceName, setNewDeviceName] = useState('');
@@ -163,6 +165,9 @@ export function HighlightFleetView({
   };
 
   const filteredDevices = highlightDevices.filter((dev) => {
+    if (statusFilter === 'BOUND' && !dev.skuCode) return false;
+    if (statusFilter === 'UNBOUND' && dev.skuCode) return false;
+    if (statusFilter === 'LOW_BATTERY' && (dev.powerLevel ?? 5) > 1) return false;
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -445,8 +450,22 @@ export function HighlightFleetView({
           />
         </div>
 
-        <div style={{ fontSize: '12px', color: c.textMuted, fontWeight: 500, whiteSpace: 'nowrap' }}>
-          Showing {filteredDevices.length} of {highlightDevices.length} physical labels
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <CustomSelect
+            value={statusFilter}
+            onChange={(val) => setStatusFilter(val as any)}
+            size="sm"
+            width="175px"
+            options={[
+              { value: 'ALL', label: 'All Labels' },
+              { value: 'BOUND', label: 'Bound to SKU', badge: 'Linked', badgeColor: '#059669' },
+              { value: 'UNBOUND', label: 'Unbound Tags', badge: 'Ready', badgeColor: '#8b5cf6' },
+              { value: 'LOW_BATTERY', label: 'Low Battery (<20%)', badge: 'Alert', badgeColor: '#dc2626' },
+            ]}
+          />
+          <div style={{ fontSize: '12px', color: c.textMuted, fontWeight: 500, whiteSpace: 'nowrap' }}>
+            Showing {filteredDevices.length} of {highlightDevices.length} physical labels
+          </div>
         </div>
       </div>
 
