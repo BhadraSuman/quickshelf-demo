@@ -379,7 +379,7 @@ export default function App() {
 
   // Add Gateway Form State
   const [newGatewayHwId, setNewGatewayHwId] = useState('');
-  const [newGatewayStoreId, setNewGatewayStoreId] = useState('store-blr-koramangala');
+  const [newGatewayStoreId, setNewGatewayStoreId] = useState('');
   const [newGatewayRate, setNewGatewayRate] = useState(50);
 
   // LED Locate Animation Tracking
@@ -1786,55 +1786,23 @@ export default function App() {
             boxSizing: 'border-box',
           }}
         >
-          {/* Left: Active Location & Store Context */}
+          {/* Left: Active Section & Real Cloud Hardware Org */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: c.text }}>
+              {activeTab === 'overview' ? 'Home Overview' :
+               activeTab === 'highlight' ? 'Hardware Fleet' :
+               activeTab === 'pricing' ? 'Products & Pricing' :
+               activeTab === 'gateways' ? 'Base Stations (APs)' :
+               activeTab === 'audit' ? 'Audit Trail' :
+               activeTab === 'docs' ? 'Operations & SOPs' : 'Operations'}
+            </span>
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '7px',
-                backgroundColor: c.surfaceSubtle,
-                padding: '5px 10px',
-                borderRadius: '6px',
-                border: `1px solid ${c.border}`,
-                fontSize: '12px',
-              }}
-            >
-              <Store size={14} color={c.primary} />
-              {stores.length === 0 ? (
-                <span style={{ color: c.textMuted }}>No stores loaded</span>
-              ) : stores.length === 1 ? (
-                <span style={{ fontWeight: 700, color: c.text }}>
-                  {stores[0].name} <span style={{ fontWeight: 500, color: c.textMuted }}>({stores[0].city})</span>
-                </span>
-              ) : (
-                <select
-                  value={selectedStoreFilter}
-                  onChange={(e) => setSelectedStoreFilter(e.target.value)}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: c.text,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    outline: 'none',
-                  }}
-                >
-                  <option value="ALL">All Network Stores ({stores.length})</option>
-                  {stores.map((s) => (
-                    <option key={s.id} value={s.name}>
-                      {s.name} ({s.city})
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            <span
-              style={{
+                gap: '6px',
                 fontSize: '11px',
-                fontWeight: 700,
+                fontWeight: 600,
                 color: c.textMuted,
                 backgroundColor: c.surfaceSubtle,
                 padding: '4px 8px',
@@ -1843,8 +1811,10 @@ export default function App() {
                 fontFamily: 'monospace',
               }}
             >
-              ORG: {highlightStatus?.orgCode || 'CU006INDIA0344'}
-            </span>
+              <span>ORG: {highlightStatus?.orgCode || 'CU006INDIA0344'}</span>
+              <span style={{ color: c.border }}>•</span>
+              <span>STATION: 483</span>
+            </div>
           </div>
 
           {/* Right: Cloud Status, Refresh, Notifications, Profile & Sign Out */}
@@ -2047,10 +2017,10 @@ export default function App() {
                     <Store size={15} color={c.primaryHover} />
                   </div>
                   <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '6px', color: c.text }}>
-                    {stores.length > 0 ? stores.length : 1} <span style={{ fontSize: '12px', color: c.textMuted, fontWeight: 500 }}>locations</span>
+                    {stores.length} <span style={{ fontSize: '12px', color: c.textMuted, fontWeight: 500 }}>locations</span>
                   </div>
                   <div style={{ fontSize: '11px', color: c.textMuted, marginTop: '4px' }}>
-                    Configured retail planograms
+                    {stores.length === 0 ? 'No physical store configured' : 'Configured retail planograms'}
                   </div>
                 </div>
 
@@ -3334,7 +3304,7 @@ export default function App() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      storeId: stores[0]?.id || 'store-blr-koramangala',
+                      storeId: stores[0]?.id || '',
                       code,
                       name,
                       priceMinor,
@@ -3358,11 +3328,11 @@ export default function App() {
             >
               <div>
                 <label style={{ display: 'block', color: c.textMuted, marginBottom: '2px' }}>SKU Code:</label>
-                <input name="skuCode" type="text" required placeholder="e.g. CAD-SILK-200" style={{ width: '100%', backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, color: c.text, padding: '6px', borderRadius: '6px', fontFamily: 'monospace' }} />
+                <input name="skuCode" type="text" required placeholder="e.g. SKU-10042" style={{ width: '100%', backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, color: c.text, padding: '6px', borderRadius: '6px', fontFamily: 'monospace' }} />
               </div>
               <div>
                 <label style={{ display: 'block', color: c.textMuted, marginBottom: '2px' }}>Product Title:</label>
-                <input name="skuName" type="text" required placeholder="e.g. Cadbury Dairy Milk Silk 200g" style={{ width: '100%', backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, color: c.text, padding: '6px', borderRadius: '6px' }} />
+                <input name="skuName" type="text" required placeholder="e.g. Organic Rolled Oats 500g" style={{ width: '100%', backgroundColor: c.surfaceSubtle, border: `1px solid ${c.border}`, color: c.text, padding: '6px', borderRadius: '6px' }} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <div>
