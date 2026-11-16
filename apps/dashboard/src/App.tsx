@@ -1631,7 +1631,7 @@ export default function App() {
               { id: 'overview', label: 'Home Overview', icon: Layers, badge: 'Hub', badgeColor: '#2563eb' },
               { id: 'pricing', label: 'Products & Catalog', icon: DollarSign, badge: 'PRC-04', badgeColor: '#2563eb' },
               { id: 'gateways', label: 'Base Stations (APs)', icon: Radio, badge: `${gateways.length || 1} AP`, badgeColor: '#8b5cf6' },
-              { id: 'highlight', label: 'Hardware Fleet', icon: Cpu, badge: highlightStatus?.connected ? `${highlightDevices.length} Tags` : 'Online', badgeColor: '#059669' },
+              { id: 'highlight', label: 'ESL Labels (Tags)', icon: TagIcon, badge: highlightStatus?.connected ? `${highlightDevices.length} Tags` : 'Online', badgeColor: '#059669' },
               { id: 'audit', label: 'Audit Trail', icon: FileText, badge: 'Live', badgeColor: '#64748b' },
               { id: 'docs', label: 'Operations & SOPs', icon: BookOpen, badge: 'Guide', badgeColor: '#0ea5e9' },
             ].map((item) => {
@@ -1804,7 +1804,7 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '13px', fontWeight: 700, color: c.text }}>
               {activeTab === 'overview' ? 'Home Overview' :
-               activeTab === 'highlight' ? 'Hardware Fleet' :
+               activeTab === 'highlight' ? 'ESL Labels (Tags)' :
                activeTab === 'pricing' ? 'Products & Pricing' :
                activeTab === 'gateways' ? 'Base Stations (APs)' :
                activeTab === 'audit' ? 'Audit Trail' :

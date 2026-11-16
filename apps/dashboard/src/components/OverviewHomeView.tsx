@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Cpu,
+  Tag,
   DollarSign,
   Radio,
   FileText,
@@ -442,7 +443,7 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                 <CheckCircle2 size={14} color={highlightDevices.length > 0 ? c.success : c.textMuted} />
-                <span style={{ fontSize: '11px', fontWeight: 700, color: c.text }}>4. E-Paper Fleet</span>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: c.text }}>4. ESL Labels (Tags)</span>
               </div>
               <div style={{ fontSize: '12px', fontWeight: 600, color: c.text, display: 'flex', justifyContent: 'space-between' }}>
                 <span>{highlightDevices.length} Physical Tags</span>
@@ -480,7 +481,7 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
           onMouseLeave={(e) => { e.currentTarget.style.borderColor = c.border; }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11.5px', fontWeight: 600, color: c.textMuted }}>TOTAL ESL FLEET</span>
+            <span style={{ fontSize: '11.5px', fontWeight: 600, color: c.textMuted }}>TOTAL ESL LABELS (TAGS)</span>
             <div
               style={{
                 width: '30px',
@@ -493,7 +494,7 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
                 justifyContent: 'center',
               }}
             >
-              <Cpu size={15} />
+              <Tag size={15} />
             </div>
           </div>
           <div style={{ marginTop: '10px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
@@ -1095,7 +1096,7 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
             </h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {[
-                { label: 'Hardware Fleet', route: 'highlight', icon: Cpu, desc: 'Manage e-paper tags & templates' },
+                { label: 'ESL Labels (Tags)', route: 'highlight', icon: Tag, desc: 'Manage e-paper price tags & templates' },
                 { label: 'Products & Pricing', route: 'pricing', icon: DollarSign, desc: 'Update prices & promo badges' },
                 { label: 'Base Stations (APs)', route: 'gateways', icon: Radio, desc: 'Tune rate limits & channels' },
                 { label: 'Audit Trail', route: 'audit', icon: FileText, desc: 'Inspect historical price changes' },

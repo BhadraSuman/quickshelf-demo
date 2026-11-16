@@ -193,7 +193,7 @@ export function HighlightFleetView({
         <div style={{ minWidth: '280px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'nowrap' }}>
             <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: c.text, whiteSpace: 'nowrap' }}>
-              Highlight IoT Hardware Fleet
+              ESL Labels & Tags (Highlight IoT)
             </h2>
             <span
               style={{
