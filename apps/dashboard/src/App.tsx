@@ -409,84 +409,149 @@ export default function App() {
   // Incident Grouping State (SOW ALR-01)
   const [incidentDismissed, setIncidentDismissed] = useState(false);
 
-  // Fetch Highlight Data
-  const fetchHighlightData = async () => {
-    if (!authToken) return;
-    try {
-      const [statusRes, devicesRes, templatesRes, productsRes] = await Promise.all([
-        apiFetch(`${API_BASE}/api/highlight/status`),
-        apiFetch(`${API_BASE}/api/highlight/devices`),
-        apiFetch(`${API_BASE}/api/highlight/templates`),
-        apiFetch(`${API_BASE}/api/highlight/products`),
-      ]);
+  // Route-based lazy loading state
+  const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
+  const isFetchingRef = useRef(false);
 
-      if (statusRes.ok) {
-        const s = await statusRes.json();
-        setHighlightStatus(s);
+  // 1. Fetch user profile once on mount
+  const fetchUserProfile = async () => {
+    try {
+      const meRes = await apiFetch(`${API_BASE}/api/auth/me`);
+      if (meRes.ok) {
+        const meData = await meRes.json();
+        if (meData.user) {
+          const displayName = meData.user.name || meData.user.email;
+          setUserName(displayName);
+          setUserEmail(meData.user.email);
+          setUserRole(meData.user.role);
+          localStorage.setItem('qs_user_name', displayName);
+          localStorage.setItem('qs_user_email', meData.user.email);
+          localStorage.setItem('qs_user_role', meData.user.role);
+        }
       }
-      if (devicesRes.ok) {
-        const d = await devicesRes.json();
-        if (d.success && d.devices) setHighlightDevices(d.devices);
-      }
-      if (templatesRes.ok) {
-        const t = await templatesRes.json();
-        if (t.success && t.templates) setHighlightTemplates(t.templates);
-      }
-      if (productsRes.ok) {
-        const p = await productsRes.json();
-        if (p.success && p.products) setHighlightProducts(p.products);
-      }
-    } catch {
-      // Highlight server optional/fallback
+    } catch {}
+  };
+
+  // 2. Overview: Lightweight, fast home landing data (<500ms)
+  const loadOverview = async () => {
+    const [statusRes, gatewaysRes, hlStatusRes, hlDevRes, auditRes] = await Promise.all([
+      apiFetch(`${API_BASE}/api/fleet/status`),
+      apiFetch(`${API_BASE}/api/gateways`),
+      apiFetch(`${API_BASE}/api/highlight/status`),
+      apiFetch(`${API_BASE}/api/highlight/devices`),
+      apiFetch(`${API_BASE}/api/audit`),
+    ]);
+
+    if (statusRes.ok) {
+      setFleet(await statusRes.json());
+      setApiConnected(true);
+    } else {
+      setApiConnected(false);
+    }
+    if (gatewaysRes.ok) setGateways(await gatewaysRes.json());
+    if (hlStatusRes.ok) setHighlightStatus(await hlStatusRes.json());
+    if (hlDevRes.ok) {
+      const d = await hlDevRes.json();
+      if (d.success && d.devices) setHighlightDevices(d.devices);
+    }
+    if (auditRes.ok) setAuditLogs(await auditRes.json());
+  };
+
+  // 3. Products & Pricing: Load SKUs and commodities only when needed
+  const loadPricing = async () => {
+    const [skusRes, productsRes, templatesRes] = await Promise.all([
+      apiFetch(`${API_BASE}/api/skus`),
+      apiFetch(`${API_BASE}/api/highlight/products`),
+      apiFetch(`${API_BASE}/api/highlight/templates`),
+    ]);
+    if (skusRes.ok) setSkus(await skusRes.json());
+    if (productsRes.ok) {
+      const p = await productsRes.json();
+      if (p.success && p.products) setHighlightProducts(p.products);
+    }
+    if (templatesRes.ok) {
+      const t = await templatesRes.json();
+      if (t.success && t.templates) setHighlightTemplates(t.templates);
     }
   };
 
-  const isFetchingRef = useRef(false);
+  // 4. Hardware Fleet: Full device list, templates, and connection
+  const loadHighlightFleet = async () => {
+    const [statusRes, devicesRes, templatesRes, productsRes] = await Promise.all([
+      apiFetch(`${API_BASE}/api/highlight/status`),
+      apiFetch(`${API_BASE}/api/highlight/devices`),
+      apiFetch(`${API_BASE}/api/highlight/templates`),
+      apiFetch(`${API_BASE}/api/highlight/products`),
+    ]);
+    if (statusRes.ok) setHighlightStatus(await statusRes.json());
+    if (devicesRes.ok) {
+      const d = await devicesRes.json();
+      if (d.success && d.devices) setHighlightDevices(d.devices);
+    }
+    if (templatesRes.ok) {
+      const t = await templatesRes.json();
+      if (t.success && t.templates) setHighlightTemplates(t.templates);
+    }
+    if (productsRes.ok) {
+      const p = await productsRes.json();
+      if (p.success && p.products) setHighlightProducts(p.products);
+    }
+  };
 
-  // Fetch Core Data (Throttled & Non-Overlapping)
-  const fetchData = async () => {
+  const fetchHighlightData = loadHighlightFleet;
+
+  // 5. Gateways / Base Stations
+  const loadGateways = async () => {
+    const [gatewaysRes, statusRes] = await Promise.all([
+      apiFetch(`${API_BASE}/api/gateways`),
+      apiFetch(`${API_BASE}/api/highlight/status`),
+    ]);
+    if (gatewaysRes.ok) setGateways(await gatewaysRes.json());
+    if (statusRes.ok) setHighlightStatus(await statusRes.json());
+  };
+
+  // 6. Audit Logs
+  const loadAudit = async () => {
+    const res = await apiFetch(`${API_BASE}/api/audit`);
+    if (res.ok) setAuditLogs(await res.json());
+  };
+
+  // Route-Based Lazy Loader
+  const loadTabData = async (tab: TabType, force = false) => {
     if (!authToken || isFetchingRef.current) return;
+    if (!force && loadedTabs.has(tab)) return;
+
     isFetchingRef.current = true;
+    setLoading(true);
     try {
-      const [statusRes, tagsRes, storesRes, gatewaysRes, skusRes, chaosRes] = await Promise.all([
-        apiFetch(`${API_BASE}/api/fleet/status`),
-        apiFetch(`${API_BASE}/api/tags`),
-        apiFetch(`${API_BASE}/api/stores`),
-        apiFetch(`${API_BASE}/api/gateways`),
-        apiFetch(`${API_BASE}/api/skus`),
-        apiFetch(`${API_BASE}/api/chaos/metrics`),
-      ]);
-
-      if (statusRes.ok && tagsRes.ok) {
-        setFleet(await statusRes.json());
-        setTags(await tagsRes.json());
-        setApiConnected(true);
-      } else {
-        setApiConnected(false);
-      }
-
-      if (storesRes.ok) setStores(await storesRes.json());
-      if (gatewaysRes.ok) setGateways(await gatewaysRes.json());
-      if (skusRes.ok) setSkus(await skusRes.json());
-      if (chaosRes.ok) setChaos(await chaosRes.json());
-      await fetchHighlightData();
-
-      // Fetch authentic user profile
-      try {
-        const meRes = await apiFetch(`${API_BASE}/api/auth/me`);
-        if (meRes.ok) {
-          const meData = await meRes.json();
-          if (meData.user) {
-            const displayName = meData.user.name || meData.user.email;
-            setUserName(displayName);
-            setUserEmail(meData.user.email);
-            setUserRole(meData.user.role);
-            localStorage.setItem('qs_user_name', displayName);
-            localStorage.setItem('qs_user_email', meData.user.email);
-            localStorage.setItem('qs_user_role', meData.user.role);
+      switch (tab) {
+        case 'overview':
+          await Promise.all([loadOverview(), fetchUserProfile()]);
+          break;
+        case 'pricing':
+          await loadPricing();
+          break;
+        case 'highlight':
+          await loadHighlightFleet();
+          break;
+        case 'gateways':
+          await loadGateways();
+          break;
+        case 'audit':
+          await loadAudit();
+          break;
+        case 'docs':
+          if (highlightDevices.length === 0) {
+            const devRes = await apiFetch(`${API_BASE}/api/highlight/devices`);
+            if (devRes.ok) {
+              const d = await devRes.json();
+              if (d.success && d.devices) setHighlightDevices(d.devices);
+            }
           }
-        }
-      } catch {}
+          break;
+      }
+      setLoadedTabs((prev) => new Set(prev).add(tab));
+      setApiConnected(true);
     } catch {
       setApiConnected(false);
     } finally {
@@ -496,15 +561,16 @@ export default function App() {
     }
   };
 
+  const fetchData = async () => {
+    await loadTabData(activeTab, true);
+  };
+
   const handleManualRefresh = async () => {
     if (isManualRefreshing || isFetchingRef.current) return;
     setIsManualRefreshing(true);
     try {
-      await fetchData();
-      if (activeTab === 'audit' || activeTab === 'overview') {
-        await fetchAuditLogs();
-      }
-      showToast('Live fleet & cloud data refreshed.');
+      await loadTabData(activeTab, true);
+      showToast('Live data refreshed successfully.');
     } catch {
       showToast('Failed to refresh data.');
     } finally {
@@ -512,21 +578,12 @@ export default function App() {
     }
   };
 
-  const fetchAuditLogs = async () => {
-    try {
-      const res = await apiFetch(`${API_BASE}/api/audit`);
-      if (res.ok) setAuditLogs(await res.json());
-    } catch {}
-  };
+  const fetchAuditLogs = loadAudit;
 
-  // Initial mount data load only (manual refresh on demand thereafter)
+  // Trigger lazy loading only when landing or navigating to a route
   useEffect(() => {
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'audit' || activeTab === 'overview') fetchAuditLogs();
-  }, [activeTab]);
+    loadTabData(activeTab);
+  }, [activeTab, authToken]);
 
   // Load Detailed Tag for Inspector Drawer
   useEffect(() => {
