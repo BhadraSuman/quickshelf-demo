@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Cpu,
   DollarSign,
@@ -13,6 +13,9 @@ import {
   ShieldCheck,
   Clock,
   AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import type {
   HighlightStatus,
@@ -101,6 +104,8 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
     error: '#dc2626',
     errorBg: '#fef2f2',
   };
+
+  const [showSetupGuide, setShowSetupGuide] = useState(true);
 
   // Real Fleet Metrics
   const physicalCount = highlightDevices.length;
@@ -286,6 +291,171 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
         </div>
       </div>
 
+      {/* Self-Guided Commissioning Checklist */}
+      <div
+        style={{
+          backgroundColor: c.surface,
+          border: `1px solid ${c.border}`,
+          borderRadius: '12px',
+          padding: '16px 20px',
+        }}
+      >
+        <div
+          onClick={() => setShowSetupGuide((prev) => !prev)}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: c.text }}>
+              Store Deployment & Commissioning Flow
+            </span>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: c.success,
+                backgroundColor: c.successBg,
+                padding: '2px 8px',
+                borderRadius: '6px',
+              }}
+            >
+              Step-by-Step Architecture
+            </span>
+          </div>
+          <button
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: c.textMuted,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            {showSetupGuide ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+        </div>
+
+        {showSetupGuide && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+              gap: '12px',
+              marginTop: '14px',
+              paddingTop: '14px',
+              borderTop: `1px solid ${c.border}`,
+            }}
+          >
+            {/* Step 1 */}
+            <div
+              style={{
+                backgroundColor: c.surfaceSubtle,
+                borderRadius: '8px',
+                padding: '12px',
+                border: `1px solid ${c.border}`,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                <CheckCircle2 size={14} color={highlightStatus?.connected ? c.success : c.textMuted} />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: c.text }}>1. Cloud Organization</span>
+              </div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: c.text, fontFamily: 'monospace' }}>
+                {highlightStatus?.orgCode || 'CU006INDIA0344:483'}
+              </div>
+              <div style={{ fontSize: '10.5px', color: c.textMuted, marginTop: '2px' }}>
+                {highlightStatus?.connected ? '● Verified & Active' : 'Connecting to cloud...'}
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div
+              onClick={() => onNavigate('gateways')}
+              style={{
+                backgroundColor: c.surfaceSubtle,
+                borderRadius: '8px',
+                padding: '12px',
+                border: `1px solid ${c.border}`,
+                cursor: 'pointer',
+                transition: 'border-color 0.15s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = c.primary; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = c.border; }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                <CheckCircle2 size={14} color={c.success} />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: c.text }}>2. RF Base Station (AP)</span>
+              </div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: c.text, display: 'flex', justifyContent: 'space-between' }}>
+                <span>AP-E43819636067</span>
+                <ArrowRight size={12} color={c.textMuted} />
+              </div>
+              <div style={{ fontSize: '10.5px', color: c.textMuted, marginTop: '2px' }}>
+                865–868 MHz ISM Sub-GHz
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div
+              onClick={() => onNavigate('pricing')}
+              style={{
+                backgroundColor: c.surfaceSubtle,
+                borderRadius: '8px',
+                padding: '12px',
+                border: `1px solid ${c.border}`,
+                cursor: 'pointer',
+                transition: 'border-color 0.15s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = c.primary; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = c.border; }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                <CheckCircle2 size={14} color={skus.length > 0 ? c.success : c.textMuted} />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: c.text }}>3. Catalog & Pricing</span>
+              </div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: c.text, display: 'flex', justifyContent: 'space-between' }}>
+                <span>{skus.length} SKUs Listed</span>
+                <ArrowRight size={12} color={c.textMuted} />
+              </div>
+              <div style={{ fontSize: '10.5px', color: c.textMuted, marginTop: '2px' }}>
+                PRC-04 Guardrails Enforced
+              </div>
+            </div>
+
+            {/* Step 4 */}
+            <div
+              onClick={() => onNavigate('highlight')}
+              style={{
+                backgroundColor: c.surfaceSubtle,
+                borderRadius: '8px',
+                padding: '12px',
+                border: `1px solid ${c.border}`,
+                cursor: 'pointer',
+                transition: 'border-color 0.15s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = c.primary; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = c.border; }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                <CheckCircle2 size={14} color={highlightDevices.length > 0 ? c.success : c.textMuted} />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: c.text }}>4. E-Paper Fleet</span>
+              </div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: c.text, display: 'flex', justifyContent: 'space-between' }}>
+                <span>{highlightDevices.length} Physical Tags</span>
+                <ArrowRight size={12} color={c.textMuted} />
+              </div>
+              <div style={{ fontSize: '10.5px', color: c.textMuted, marginTop: '2px' }}>
+                OTA Price Push & Pairing
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* 2. Top 4 High-Level Metric Cards */}
       <div
         style={{
@@ -297,6 +467,7 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
         {/* Card 1: Total Fleet */}
         <div
           onClick={() => onNavigate('highlight')}
+          title="Total registered Electronic Shelf Labels reporting to this organization."
           style={{
             backgroundColor: c.surface,
             border: `1px solid ${c.border}`,
@@ -340,6 +511,7 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
         {/* Card 2: Fleet Convergence */}
         <div
           onClick={() => onNavigate('highlight')}
+          title="Fleet Convergence: Percentage of tags whose e-paper display is verified in sync with the central database."
           style={{
             backgroundColor: c.surface,
             border: `1px solid ${c.border}`,
@@ -385,6 +557,7 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
         {/* Card 3: Base Stations APs */}
         <div
           onClick={() => onNavigate('gateways')}
+          title="Sub-GHz Radio Base Stations (APs) broadcasting wireless updates over 865-868 MHz ISM bands."
           style={{
             backgroundColor: c.surface,
             border: `1px solid ${c.border}`,
@@ -428,6 +601,7 @@ export const OverviewHomeView: React.FC<OverviewHomeViewProps> = ({
         {/* Card 4: Managed Catalog SKUs */}
         <div
           onClick={() => onNavigate('pricing')}
+          title="Catalog SKUs under active price management with PRC-04 MRP guardrails."
           style={{
             backgroundColor: c.surface,
             border: `1px solid ${c.border}`,

@@ -1625,14 +1625,14 @@ export default function App() {
             </button>
           </div>
 
-          {/* Navigation Links (All 6 Core Operational Routes) */}
+          {/* Navigation Links (All 6 Core Operational Routes in Deployment Lifecycle Order) */}
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
             {[
               { id: 'overview', label: 'Home Overview', icon: Layers, badge: 'Hub', badgeColor: '#2563eb' },
-              { id: 'highlight', label: 'Hardware Fleet', icon: Cpu, badge: highlightStatus?.connected ? `${highlightDevices.length} Tags` : 'Online', badgeColor: '#059669' },
-              { id: 'pricing', label: 'Products & Pricing', icon: DollarSign, badge: 'PRC-04', badgeColor: '#2563eb' },
+              { id: 'pricing', label: 'Products & Catalog', icon: DollarSign, badge: 'PRC-04', badgeColor: '#2563eb' },
               { id: 'gateways', label: 'Base Stations (APs)', icon: Radio, badge: `${gateways.length || 1} AP`, badgeColor: '#8b5cf6' },
-              { id: 'audit', label: 'Audit Logs', icon: FileText, badge: 'Live', badgeColor: '#64748b' },
+              { id: 'highlight', label: 'Hardware Fleet', icon: Cpu, badge: highlightStatus?.connected ? `${highlightDevices.length} Tags` : 'Online', badgeColor: '#059669' },
+              { id: 'audit', label: 'Audit Trail', icon: FileText, badge: 'Live', badgeColor: '#64748b' },
               { id: 'docs', label: 'Operations & SOPs', icon: BookOpen, badge: 'Guide', badgeColor: '#0ea5e9' },
             ].map((item) => {
               const Icon = item.icon;
