@@ -4,6 +4,13 @@ import quickshelfIcon from './assets/quickshelf-icon.png';
 import { DocumentationView } from './components/DocumentationView.js';
 import { OverviewHomeView } from './components/OverviewHomeView.js';
 import {
+  Skeleton,
+  KpiCardSkeleton,
+  TableSkeleton,
+  HomeOverviewSkeleton,
+  HighlightFleetSkeleton,
+} from './components/Skeleton.js';
+import {
   HighlightFleetView,
   type HighlightStatus,
   type HighlightDevice,
@@ -1827,6 +1834,37 @@ export default function App() {
 
           {/* Right: Cloud Status, Refresh, Notifications, Profile & Sign Out */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Live Data Fetching Indicator */}
+            {(loading || isManualRefreshing) && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: c.primary,
+                  backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                  border: '1px solid rgba(37, 99, 235, 0.25)',
+                  padding: '3px 8px',
+                  borderRadius: '12px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    backgroundColor: c.primary,
+                    display: 'inline-block',
+                  }}
+                  className="anim-blinking-tag"
+                />
+                <span>Loading live data...</span>
+              </div>
+            )}
+
             {/* Real Hardware Cloud Status Dot */}
             <div
               style={{
@@ -1995,21 +2033,28 @@ export default function App() {
 
         {/* Workspace Body */}
         <main style={{ padding: '24px 28px', flex: 1, display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          {/* Top Loading Progress Bar */}
+          {(loading || isManualRefreshing) && <div className="top-loading-bar" />}
+
           {/* =========================================================================
               MODULE 0: EXECUTIVE HOME OVERVIEW (Visual Graphs & High-Level KPIs)
           ========================================================================== */}
           {activeTab === 'overview' && (
-            <OverviewHomeView
-              fleetStatus={fleet}
-              highlightStatus={highlightStatus}
-              highlightDevices={highlightDevices}
-              skus={skus}
-              gateways={gateways}
-              auditLogs={auditLogs}
-              onNavigate={handleNavigate}
-              onSyncFleet={handleSyncHighlight}
-              isSyncing={syncingHighlight}
-            />
+            loading ? (
+              <HomeOverviewSkeleton />
+            ) : (
+              <OverviewHomeView
+                fleetStatus={fleet}
+                highlightStatus={highlightStatus}
+                highlightDevices={highlightDevices}
+                skus={skus}
+                gateways={gateways}
+                auditLogs={auditLogs}
+                onNavigate={handleNavigate}
+                onSyncFleet={handleSyncHighlight}
+                isSyncing={syncingHighlight}
+              />
+            )
           )}
 
           {/* =========================================================================
@@ -2584,30 +2629,50 @@ export default function App() {
               MODULE: HIGHLIGHT IOT CLOUD HARDWARE FLEET
           ========================================================================== */}
           {activeTab === 'highlight' && (
-            <HighlightFleetView
-              highlightStatus={highlightStatus}
-              highlightDevices={highlightDevices}
-              highlightTemplates={highlightTemplates}
-              highlightProducts={highlightProducts}
-              syncingHighlight={syncingHighlight}
-              onSyncHighlight={handleSyncHighlight}
-              onLocateDevice={handleLocateHighlightDevice}
-              onFlashDevice={handleFlashHighlightDevice}
-              onStopFlashDevice={handleStopFlashHighlightDevice}
-              onOpenOtaModal={handleOpenHighlightOtaModal}
-              onOpenPairModal={handleOpenPairModal}
-              onUnbindDevice={handleOpenUnbindModal}
-              onOpenCsvModal={handleOpenCsvModal}
-              onRenameDevice={handleRenameDevice}
-              blinkingTagIds={blinkingTagIds}
-            />
+            loading ? (
+              <HighlightFleetSkeleton />
+            ) : (
+              <HighlightFleetView
+                highlightStatus={highlightStatus}
+                highlightDevices={highlightDevices}
+                highlightTemplates={highlightTemplates}
+                highlightProducts={highlightProducts}
+                syncingHighlight={syncingHighlight}
+                onSyncHighlight={handleSyncHighlight}
+                onLocateDevice={handleLocateHighlightDevice}
+                onFlashDevice={handleFlashHighlightDevice}
+                onStopFlashDevice={handleStopFlashHighlightDevice}
+                onOpenOtaModal={handleOpenHighlightOtaModal}
+                onOpenPairModal={handleOpenPairModal}
+                onUnbindDevice={handleOpenUnbindModal}
+                onOpenCsvModal={handleOpenCsvModal}
+                onRenameDevice={handleRenameDevice}
+                blinkingTagIds={blinkingTagIds}
+              />
+            )
           )}
 
           {/* =========================================================================
               MODULE 3: PRICING & LIVE PUBLISH TRACKER (SOW §9, PRC-04, PRC-06)
           ========================================================================== */}
           {activeTab === 'pricing' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            loading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <Skeleton width="280px" height="22px" />
+                    <Skeleton width="380px" height="13px" />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <Skeleton width="130px" height="32px" borderRadius="6px" />
+                    <Skeleton width="110px" height="32px" borderRadius="6px" />
+                    <Skeleton width="120px" height="32px" borderRadius="6px" />
+                  </div>
+                </div>
+                <TableSkeleton rows={8} columns={8} />
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: c.text }}>Dynamic Pricing & Live Publish Tracker</h2>
@@ -2859,20 +2924,38 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-              </div>            </div>
+              </div>
+            </div>
+            )
           )}
 
           {/* =========================================================================
               MODULE 4: GATEWAYS & LABEL REGISTRY (SOW §6, GW-01, LBL-01)
           ========================================================================== */}
           {activeTab === 'gateways' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: c.text }}>Access Points (APs) & Radio Hardware</h2>
-                  <p style={{ margin: '2px 0 0', color: c.textMuted, fontSize: '13px' }}>
-                    Real-time gateway connectivity, transmission rate limit tuning, and WebSocket synchronization.
-                  </p>
+            loading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <Skeleton width="280px" height="22px" />
+                    <Skeleton width="340px" height="13px" />
+                  </div>
+                  <Skeleton width="210px" height="34px" borderRadius="6px" />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px' }}>
+                  <KpiCardSkeleton />
+                  <KpiCardSkeleton />
+                </div>
+                <TableSkeleton rows={5} columns={6} />
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: c.text }}>Access Points (APs) & Radio Hardware</h2>
+                    <p style={{ margin: '2px 0 0', color: c.textMuted, fontSize: '13px' }}>
+                      Real-time gateway connectivity, transmission rate limit tuning, and WebSocket synchronization.
+                    </p>
                 </div>
                 <button
                   onClick={() => setShowAddGatewayModal(true)}
@@ -2983,20 +3066,33 @@ export default function App() {
                 </table>
               </div>
             </div>
+            )
           )}
 
           {/* =========================================================================
               MODULE 5: AUDIT & DIAGNOSTICS (SOW §8, LOG-01, CERT-In)
           ========================================================================== */}
           {activeTab === 'audit' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: c.text }}>Audit, Diagnostics & Security Compliance</h2>
-                  <p style={{ margin: '2px 0 0', color: c.textMuted, fontSize: '13px' }}>
-                    CERT-In 180-day compliance rolling ledger, NTP clock verification, and 7 Hard Problems chaos diagnostics.
-                  </p>
+            loading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <Skeleton width="280px" height="22px" />
+                    <Skeleton width="380px" height="13px" />
+                  </div>
+                  <Skeleton width="200px" height="30px" borderRadius="6px" />
                 </div>
+                <TableSkeleton rows={8} columns={7} />
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: c.text }}>Audit, Diagnostics & Security Compliance</h2>
+                    <p style={{ margin: '2px 0 0', color: c.textMuted, fontSize: '13px' }}>
+                      CERT-In 180-day compliance rolling ledger, NTP clock verification, and 7 Hard Problems chaos diagnostics.
+                    </p>
+                  </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: c.surfaceSubtle, padding: '4px 10px', borderRadius: '6px', border: `1px solid ${c.border}`, fontSize: '11px', fontFamily: 'monospace' }}>
                   <Lock size={12} color={c.success} />
                   <span>NTP Clocks: NIC/NPL Synced (UTC+0)</span>
@@ -3092,6 +3188,7 @@ export default function App() {
                 </table>
               </div>
             </div>
+            )
           )}
 
           {/* =========================================================================
