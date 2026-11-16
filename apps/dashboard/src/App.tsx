@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import quickshelfLogo from './assets/quickshelf-logo.webp';
 import quickshelfIcon from './assets/quickshelf-icon.png';
 import { DocumentationView } from './components/DocumentationView.js';
+import { OverviewHomeView } from './components/OverviewHomeView.js';
 import {
   HighlightFleetView,
   type HighlightStatus,
@@ -209,10 +210,40 @@ interface AuditItem {
   createdAt: string;
 }
 
+type TabType = 'overview' | 'highlight' | 'pricing' | 'gateways' | 'audit' | 'docs' | 'fleet';
+
+function getTabFromHash(): TabType {
+  if (typeof window === 'undefined') return 'overview';
+  const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase().trim();
+  if (hash === 'fleet' || hash === 'highlight') return 'highlight';
+  if (hash === 'pricing') return 'pricing';
+  if (hash === 'gateways' || hash === 'aps' || hash === 'base-stations') return 'gateways';
+  if (hash === 'audit' || hash === 'logs') return 'audit';
+  if (hash === 'docs' || hash === 'sops' || hash === 'guide') return 'docs';
+  return 'overview';
+}
+
 export default function App() {
-  // Navigation & Layout State (Defaulting to Highlight IoT Hardware Fleet)
-  const [activeTab, setActiveTab] = useState<'highlight' | 'pricing' | 'gateways' | 'audit' | 'docs' | 'fleet'>('highlight');
+  // Navigation & Hash-based URL Routing (Defaulting to Executive Home Overview)
+  const [activeTab, setActiveTab] = useState<TabType>(getTabFromHash);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Sync state with browser URL Hash and back/forward buttons
+  useEffect(() => {
+    const handleHashChange = () => {
+      setActiveTab(getTabFromHash());
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const handleNavigate = (tab: TabType) => {
+    setActiveTab(tab);
+    const targetHash = tab === 'overview' ? '#/' : `#/${tab === 'highlight' ? 'fleet' : tab}`;
+    if (window.location.hash !== targetHash) {
+      window.location.hash = targetHash;
+    }
+  };
 
   // User Profile & System Settings State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -463,7 +494,7 @@ export default function App() {
   }, [autoRefresh]);
 
   useEffect(() => {
-    if (activeTab === 'audit') fetchAuditLogs();
+    if (activeTab === 'audit' || activeTab === 'overview') fetchAuditLogs();
   }, [activeTab]);
 
   // Load Detailed Tag for Inspector Drawer
@@ -1452,10 +1483,16 @@ export default function App() {
               <img
                 src={quickshelfIcon}
                 alt="QuickShelf Icon"
-                style={{ width: '32px', height: '32px', objectFit: 'contain' }}
+                onClick={() => handleNavigate('overview')}
+                style={{ width: '32px', height: '32px', objectFit: 'contain', cursor: 'pointer' }}
+                title="Go to Home Overview"
               />
             ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+              <div
+                onClick={() => handleNavigate('overview')}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, cursor: 'pointer' }}
+                title="Go to Home Overview"
+              >
                 <img
                   src={quickshelfLogo}
                   alt="QuickShelf Logo"
@@ -1558,11 +1595,13 @@ export default function App() {
             );
           })()}
 
-          {/* Navigation Links (Streamlined Essential Operational Hub) */}
+          {/* Navigation Links (All 6 Core Operational Routes) */}
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
             {[
+              { id: 'overview', label: 'Home Overview', icon: Layers, badge: 'Hub', badgeColor: '#2563eb' },
               { id: 'highlight', label: 'Hardware Fleet', icon: Cpu, badge: highlightStatus?.connected ? `${highlightDevices.length} Tags` : 'Online', badgeColor: '#059669' },
-              { id: 'pricing', label: 'Dynamic Pricing', icon: DollarSign, badge: 'PRC-04', badgeColor: '#2563eb' },
+              { id: 'pricing', label: 'Products & Pricing', icon: DollarSign, badge: 'PRC-04', badgeColor: '#2563eb' },
+              { id: 'gateways', label: 'Base Stations (APs)', icon: Radio, badge: `${gateways.length || 1} AP`, badgeColor: '#8b5cf6' },
               { id: 'audit', label: 'Audit Logs', icon: FileText, badge: 'Live', badgeColor: '#64748b' },
               { id: 'docs', label: 'Operations & SOPs', icon: BookOpen, badge: 'Guide', badgeColor: '#0ea5e9' },
             ].map((item) => {
@@ -1571,7 +1610,7 @@ export default function App() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
+                  onClick={() => handleNavigate(item.id as any)}
                   title={sidebarCollapsed ? item.label : undefined}
                   style={{
                     display: 'flex',
@@ -1957,6 +1996,23 @@ export default function App() {
 
         {/* Workspace Body */}
         <main style={{ padding: '24px 28px', flex: 1, display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          {/* =========================================================================
+              MODULE 0: EXECUTIVE HOME OVERVIEW (Visual Graphs & High-Level KPIs)
+          ========================================================================== */}
+          {activeTab === 'overview' && (
+            <OverviewHomeView
+              fleetStatus={fleet}
+              highlightStatus={highlightStatus}
+              highlightDevices={highlightDevices}
+              skus={skus}
+              gateways={gateways}
+              auditLogs={auditLogs}
+              onNavigate={handleNavigate}
+              onSyncFleet={handleSyncHighlight}
+              isSyncing={syncingHighlight}
+            />
+          )}
+
           {/* =========================================================================
               MODULE 1: FLEET HEALTH & INCIDENT COMMAND (SOW HLT-01, ALR-01)
           ========================================================================== */}
