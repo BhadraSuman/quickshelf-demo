@@ -537,9 +537,6 @@ export default function App() {
           await loadPricing();
           break;
         case 'templates':
-          if (skus.length === 0) {
-            await loadPricing();
-          }
           break;
         case 'highlight':
           await loadHighlightFleet();
@@ -3207,7 +3204,7 @@ export default function App() {
               MODULE: 4-COLOR ESL TEMPLATE STUDIO
           ========================================================================== */}
           {activeTab === 'templates' && (
-            <TemplateStudioView skus={skus} />
+            <TemplateStudioView />
           )}
 
           {/* =========================================================================
