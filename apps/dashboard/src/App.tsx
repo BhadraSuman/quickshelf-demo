@@ -77,6 +77,7 @@ import {
   Bell,
   CheckCheck,
   LogOut,
+  Palette,
 } from 'lucide-react';
 import {
   NotificationToastContainer,
@@ -85,6 +86,7 @@ import {
 } from './components/NotificationToast';
 import { LoginScreen } from './components/LoginScreen';
 import { CustomSelect } from './components/CustomSelect';
+import { TemplateStudioView } from './components/TemplateStudioView';
 
 const API_BASE =
   (import.meta as any).env?.VITE_API_BASE ||
@@ -218,13 +220,14 @@ interface AuditItem {
   createdAt: string;
 }
 
-type TabType = 'overview' | 'highlight' | 'pricing' | 'gateways' | 'audit' | 'docs' | 'fleet';
+type TabType = 'overview' | 'highlight' | 'pricing' | 'templates' | 'gateways' | 'audit' | 'docs' | 'fleet';
 
 function getTabFromHash(): TabType {
   if (typeof window === 'undefined') return 'overview';
   const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase().trim();
   if (hash === 'fleet' || hash === 'highlight') return 'highlight';
   if (hash === 'pricing') return 'pricing';
+  if (hash === 'templates' || hash === 'studio') return 'templates';
   if (hash === 'gateways' || hash === 'aps' || hash === 'base-stations') return 'gateways';
   if (hash === 'audit' || hash === 'logs') return 'audit';
   if (hash === 'docs' || hash === 'sops' || hash === 'guide') return 'docs';
@@ -532,6 +535,11 @@ export default function App() {
           break;
         case 'pricing':
           await loadPricing();
+          break;
+        case 'templates':
+          if (skus.length === 0) {
+            await loadPricing();
+          }
           break;
         case 'highlight':
           await loadHighlightFleet();
@@ -1632,6 +1640,7 @@ export default function App() {
             {[
               { id: 'overview', label: 'Home Overview', icon: Layers, badge: 'Hub', badgeColor: '#2563eb' },
               { id: 'pricing', label: 'Products & Catalog', icon: DollarSign, badge: 'PRC-04', badgeColor: '#2563eb' },
+              { id: 'templates', label: 'Template Studio', icon: Palette, badge: '4-Color', badgeColor: '#eab308' },
               { id: 'gateways', label: 'Base Stations (APs)', icon: Radio, badge: `${gateways.length || 1} AP`, badgeColor: '#8b5cf6' },
               { id: 'highlight', label: 'ESL Labels (Tags)', icon: TagIcon, badge: highlightStatus?.connected ? `${highlightDevices.length} Tags` : 'Online', badgeColor: '#059669' },
               { id: 'audit', label: 'Audit Trail', icon: FileText, badge: 'Live', badgeColor: '#64748b' },
@@ -1806,6 +1815,7 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '13px', fontWeight: 700, color: c.text }}>
               {activeTab === 'overview' ? 'Home Overview' :
+               activeTab === 'templates' ? 'Template Studio (4-Color E-Paper)' :
                activeTab === 'highlight' ? 'ESL Labels (Tags)' :
                activeTab === 'pricing' ? 'Products & Pricing' :
                activeTab === 'gateways' ? 'Base Stations (APs)' :
@@ -3191,6 +3201,13 @@ export default function App() {
               </div>
             </div>
             )
+          )}
+
+          {/* =========================================================================
+              MODULE: 4-COLOR ESL TEMPLATE STUDIO
+          ========================================================================== */}
+          {activeTab === 'templates' && (
+            <TemplateStudioView skus={skus} />
           )}
 
           {/* =========================================================================
